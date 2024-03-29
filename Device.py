@@ -109,6 +109,9 @@ class Device:
         self.miner_associated_worker_set = set()
         self.miner_associated_validator_set = set()
         # dict cannot be added to set()
+        self.aggregate_time = None
+        self.aggregate_rewards = 0
+        self.aggregate_total_local_updates = 0
         self.unconfirmmed_transactions = None or []
         self.broadcasted_transactions = None or []
         self.mined_block = None
@@ -858,7 +861,7 @@ class Device:
                         sum_parameters[var] += local_updates_params[var]
             # number of finally filtered workers' updates
             num_participants = len(local_params_by_benign_workers)
-            for var in self.global_parameters:
+            for var in self.global_parameters: 
                 self.global_parameters[var] = (sum_parameters[var] / num_participants)
             print(f"global updates done by {self.idx}")
         else:
@@ -866,8 +869,8 @@ class Device:
         
         
     ''' miner '''
-    #TODO time for aggregate and different aggregate methods
-    def aggregate_candidate_model(self, local_update_params_potentially_to_be_used):
+    #TODO different aggregate methods
+    def aggregate_candidate_model(self, local_update_params_potentially_to_be_used, rewards, log_files_folder_path_comm_round, comm_round):
         print(f"Miner {self.idx} is aggregating candidate model with computation power {self.computation_power} and link speed {round(self.link_speed,3)} bytes/s")
         # filter local_params
         local_params_by_benign_workers = []
@@ -888,15 +891,27 @@ class Device:
                         sum_parameters[var] += local_updates_params[var]
             # number of finally filtered workers' updates
             num_participants = len(local_params_by_benign_workers)
+            self.aggregate_total_local_updates = num_participants
             for var in self.candidate_parameters:
                 self.candidate_parameters[var] = (sum_parameters[var] / num_participants)
             print(f"A candidate model is produced by {self.idx}")
+            #self.aggregate_rewards += rewards * (label.shape[0]) #setting rewards 
+            with open(f"{log_files_folder_path_comm_round}/miner_{self.idx}_candidate_model_accuracies_comm_{comm_round}.txt", "a") as file:
+                file.write(f"{self.return_idx()} round_{comm_round} {self.return_role()}: {self.validate_model_weights(self.net.state_dict())}\n") #self.validate_model_weights(self.net.state_dict())是否可用？
             try:
                 self.aggregate_time = (time.time() - self.aggregate_time)/self.computation_power
             except:
                 self.aggregate_time = float('inf')
         else:
             print(f"There are no available local params for {self.idx} to get candidate model in this comm round.")
+        return self.aggregate_time
+
+    def return_candidate_model_and_signature(self, comm_round):
+        # local_total_accumulated_epochs_this_round also stands for the lastest_epoch_seq for this transaction(local params are calculated after this amount of local epochs in this round)
+        # last_local_iteration(s)_spent_time may be recorded to determine calculating time? But what if nodes do not wish to disclose its computation power
+        local_updates_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_total_local_updates_this_round": self.aggregate_total_local_updates, "miner_rsa_pub_key": self.return_rsa_pub_key()}
+        local_updates_dict["worker_signature"] = self.sign_msg(sorted(local_updates_dict.items()))
+        return local_updates_dict
 
     def request_to_download(self, block_to_download, requesting_time_point):
         print(f"miner {self.idx} is requesting its associated devices to download the block it just added to its chain")
@@ -1075,6 +1090,9 @@ class Device:
 #		self.block_to_add = None
         self.unordered_propagated_block_processing_queue.clear()
         self.round_end_time = 0
+        self.aggregate_total_local_updates = 0
+        self.aggregate_rewards = 0
+        self.aggregate_time = None
     
     def set_unordered_arrival_time_accepted_validator_transactions(self, unordered_arrival_time_accepted_validator_transactions):
         self.unordered_arrival_time_accepted_validator_transactions = unordered_arrival_time_accepted_validator_transactions

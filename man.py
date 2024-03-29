@@ -548,7 +548,7 @@ if __name__=="__main__":
 				if post_validation_transaction['update_direction']:
 					local_params_used_by_miner.append((post_validation_transaction['worker_device_idx'], post_validation_transaction["local_updates_params"]))
 			if miner.online_switcher():
-				miner.aggregate_candidate_model(local_params_used_by_miner) #
+				miner.aggregate_time = miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round) #
 			else:
 				print(f"A aggregation process is skipped by miner {miner.return_idx()} due to miner offline.")
 
