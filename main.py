@@ -87,6 +87,7 @@ parser.add_argument('-cons', '--consensus', type=str, default='PoW', help="inclu
 
 # blockchain FL validator/miner restriction tuning parameters
 parser.add_argument('-mt', '--miner_acception_wait_time', type=float, default=0.0, help="default time window for miners to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
+parser.add_argument('-wt', '--worker_acception_wait_time', type=float, default=0.0, help="default time window for workers to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-ml', '--miner_accepted_transactions_size_limit', type=float, default=0.0, help="no further transactions will be accepted by miner after this limit. 0 means no size limit. either this or -mt has to be specified, or both. This param determines the final block_size")
 parser.add_argument('-mp', '--miner_pos_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoS")
 parser.add_argument('-vh', '--validate_threshold', type=float, default=1.0, help="a threshold value of accuracy difference to determine malicious worker")
@@ -232,7 +233,7 @@ if __name__=="__main__":
 		loss_func = F.cross_entropy
 
 		# 9. create devices in the network
-		devices_in_network = DevicesInNetwork(data_set_name=args['dataset'], is_iid=args['IID'], batch_size = args['batchsize'], learning_rate =  args['learning_rate'], loss_func = loss_func, opti = args['optimizer'], num_devices=num_devices, network_stability=args['network_stability'], net=net, dev=dev, knock_out_rounds=args['knock_out_rounds'], lazy_worker_knock_out_rounds=args['lazy_worker_knock_out_rounds'], shard_test_data=args['shard_test_data'], miner_acception_wait_time=args['miner_acception_wait_time'], miner_accepted_transactions_size_limit=args['miner_accepted_transactions_size_limit'], validate_threshold=args['validate_threshold'], pow_difficulty=args['pow_difficulty'], even_link_speed_strength=args['even_link_speed_strength'], base_data_transmission_speed=args['base_data_transmission_speed'], even_computation_power=args['even_computation_power'], malicious_updates_discount=args['malicious_updates_discount'], num_malicious=num_malicious, noise_variance=args['noise_variance'], check_signature=args['check_signature'], not_resync_chain=args['destroy_tx_in_block'])
+		devices_in_network = DevicesInNetwork(data_set_name=args['dataset'], is_iid=args['IID'], batch_size = args['batchsize'], learning_rate =  args['learning_rate'], loss_func = loss_func, opti = args['optimizer'], num_devices=num_devices, network_stability=args['network_stability'], net=net, dev=dev, knock_out_rounds=args['knock_out_rounds'], lazy_worker_knock_out_rounds=args['lazy_worker_knock_out_rounds'], shard_test_data=args['shard_test_data'], miner_acception_wait_time=args['miner_acception_wait_time'], worker_acception_wait_time=args['worker_acception_wait_time'], miner_accepted_transactions_size_limit=args['miner_accepted_transactions_size_limit'], validate_threshold=args['validate_threshold'], pow_difficulty=args['pow_difficulty'], even_link_speed_strength=args['even_link_speed_strength'], base_data_transmission_speed=args['base_data_transmission_speed'], even_computation_power=args['even_computation_power'], malicious_updates_discount=args['malicious_updates_discount'], num_malicious=num_malicious, noise_variance=args['noise_variance'], check_signature=args['check_signature'], not_resync_chain=args['destroy_tx_in_block'])
 		del net
 		devices_list = list(devices_in_network.devices_set.values())
 
@@ -400,7 +401,6 @@ if __name__=="__main__":
 				for worker_iter in range(len(associated_workers)):
 					worker = associated_workers[worker_iter]    
 					if not worker.return_idx() in miner.return_blacfk_list():
-						# TODO here, also add print() for below miner's miners
 						print(f'worker {worker_iter+1}/{len(associated_workers)} of miner {miner.return_idx()} is doing local updates')	 
 						total_time_tracker = 0
 						update_iter = 1
@@ -533,56 +533,131 @@ if __name__=="__main__":
 						#validate
 						validation_time, post_validation_unconfirmmed_transaction = miner.validate_worker_transaction(unconfirmmed_transaction, rewards, log_files_folder_path, comm_round, args['malicious_miner_on'])
 						if validation_time:
-							miner.add_post_validation_transaction_to_queue((arrival_time + validation_time, miner.return_link_speed(), post_validation_unconfirmmed_transaction))
+							miner.add_post_validation_transaction_to_queue((arrival_time + validation_time, miner.return_link_speed(), post_validation_unconfirmmed_transaction)) #three-metric tuple
 							print(f"A validation process has been done for the transaction from worker {post_validation_unconfirmmed_transaction['worker_device_idx']} by miner {miner.return_idx()}")
 					else:
 						print(f"A validation process is skipped for the transaction from worker {post_validation_unconfirmmed_transaction['worker_device_idx']} by miner {miner.return_idx()} due to miner offline.")
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")		
-		print(''' Step 3.5 - miners aggregate the validated local updates.\n''')
-		for miner_iter in range(len(miners_this_round)):
-			miner = miners_this_round[miner_iter]
-			post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
-			local_params_used_by_miner = []
-			for (_, _, post_validation_transaction) in post_validation_transactions_by_miner:
-				if post_validation_transaction['update_direction']:
-					local_params_used_by_miner.append((post_validation_transaction['worker_device_idx'], post_validation_transaction["local_updates_params"]))
-			if miner.online_switcher():
-				miner.aggregate_time = miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round) #
-			else:
-				print(f"A aggregation process is skipped by miner {miner.return_idx()} due to miner offline.")
+		# print(''' Step 3.5 - miners aggregate the validated local updates.\n''')
+		# for miner_iter in range(len(miners_this_round)):
+		# 	miner = miners_this_round[miner_iter]
+		# 	post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
+		# 	local_params_used_by_miner = []
+		# 	for (_, _, post_validation_transaction) in post_validation_transactions_by_miner:
+		# 		if post_validation_transaction['update_direction']:
+		# 			local_params_used_by_miner.append((post_validation_transaction['worker_device_idx'], post_validation_transaction["local_updates_params"]))
+		# 	if miner.online_switcher():
+		# 		miner.aggregate_time = miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round) #
+		# 	else:
+		# 		print(f"A aggregation process is skipped by miner {miner.return_idx()} due to miner offline.")
 
-
-		print(''' Step 4 - miners send the candidate model to associated worker and worker broadcasts these to other workers in their respecitve peer lists\n''')
+		print(''' Step 4 - workers accept candidate models and broadcast to other workers in their respective peer lists (miners aggregate_candidate_model() are called in this step.\n''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
-			# resync chain
-			if worker.resync_chain(mining_consensus):
-				worker.update_model_after_chain_resync(log_files_folder_path, conn, conn_cursor)
-			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} accepting miners' candidate models...")
-			associated_miners = list(worker.return_associated_miners())
+			associated_miners = list(worker.associate_with_miner())
 			if not associated_miners:
 				print(f"No miners are associated with worker {worker.return_idx()} for this communication round.")
 				continue
-			self_worker_link_speed = worker.return_link_speed()
-			miner_transactions_arrival_queue = {}
-			for miner_iter in range(len(associated_miners)):
-				miner = associated_miners[miner_iter]
-				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is sending signature candidate model...")
-				candidate_model_by_miner = miner.return_candidate_parameters()
+			worker_link_speed = worker.return_link_speed()
+			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} is accepting miners' candidate models with link speed {worker_link_speed} bytes/s, if online...")
+			# candidate_dict used to record transmission delay for each epoch to determine the next epoch updates arrival time 
+			candidate_dict = dict.fromkeys(associated_miners, None)
+			for miner, _ in records_dict.items():
+				candidate_dict[miner] = {}
+			# used for arrival time easy sorting for later worker broadcasting (and acception order)
+			candadite_arrival_queue = {}
+			# miners aggregate_candidate_model() called here as their updates transmission may be restrained by workers' acception time and/or size 
+			if args['worker_acception_wait_time']:
+				print(f"worker wati time is specified as {args['worker_acception_wait_time']} seconds. let each miner aggregate_candidate_model till time limit")
+				for miner_iter in range(len(associated_miners)):
+					miner = associated_workers[miner_iter]
 
-				candidate_model_transaction_iter = 1
-				for (miner_sending_time, source_miner_link_spped, post_validation_unconfirmmed_transaction) in candidate_model_by_miner:
-					if miner.online_switcher() and worker.online_switcher():
-						lower_link_speed = self_worker_link_speed if self_worker_link_speed < source_miner_link_spped else source_miner_link_spped
-						transmission_delay = getsizeof(str(post_validation_unconfirmmed_transaction))/lower_link_speed
-						miner_transactions_arrival_queue[miner_sending_time + transmission_delay] = post_validation_unconfirmmed_transaction
-						print(f"worker {worker.return_idx()} has accepted {candidate_model_transaction_iter}/{len(candidate_model_by_miner)} post-validation transaction from miner {miner.return_idx()}")
+					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
+					local_params_used_by_miner = []
+					for (_, _, post_validation_transaction) in post_validation_transactions_by_miner:
+						if post_validation_transaction['update_direction']:
+							local_params_used_by_miner.append((post_validation_transaction['worker_device_idx'], post_validation_transaction["local_updates_params"]))
+
+					if not miner.return_idx() in worker.return_black_list():
+						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')
+						time_tracker = 0
+						update_iter = 1
+						miner_link_speed = miner.return_link_speed() 
+						lower_link_speed = worker_link_speed if worker_link_speed < miner_link_speed else miner_link_speed
+						while time_tracker < worker.return_worker_acception_wait_time(): #TODO maybe not like this 
+							if miner.online_switcher():
+								aggregate_spent_time = miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round) #TODO need to check
+								unverified_candidate = miner.return_candidate_model_and_signature(comm_round) #TODO need to check
+								unverified_candidate_size = getsizeof(str(unverified_candidate))
+								candidate_transmission_delay = unverified_candidate_size/lower_link_speed
+								if aggregate_spent_time + candidate_transmission_delay > worker.return_worker_acception_wait_time():
+									# last transaction sent passes the acception time window
+									break
+								candidate_dict[miner] = {}
+								candidate_dict[miner]['aggregate_spent_time'] = aggregate_spent_time
+								candidate_dict[miner]['candidate_transmission_delay'] = candidate_transmission_delay
+								candidate_dict[miner]['unverified_candidate_size'] = unverified_candidate
+								candidate_dict[miner]['unverified_candidate_size'] = unverified_candidate_size
+								time_tracker = aggregate_spent_time + candidate_transmission_delay #TODO check this
+								candidate_dict[miner]['arrival_time'] = time_tracker
+								if worker.online_switcher():
+									# accept this transaction only if the validator is online
+									print(f"Worker {worker.return_idx()} has accepted this candidate.")
+									candadite_arrival_queue[time_tracker] = unverified_candidate
+								else:
+									print(f"Worker {worker.return_idx()} offline and unable to accept this candidate")
+							else:
+								# miner goes offline and skip aggregate for one candidate model, wasted the time of aggregate and transmission
+								#TODO add function for miner like "worker.waste_one_epoch_local_update_time(args['optimizer'])"
+								wasted_aggregate_time, wasted_candidate_model = miner.waste_aggregate_time(args['optimizer']) 
+								wasted_candidate_model_size = getsizeof(str(wasted_candidate_model))
+								wasted_candidate_transmission_delay = wasted_candidate_model_size/lower_link_speed
+								if wasted_aggregate_time + wasted_candidate_transmission_delay > worker.return_worker_acception_wait_time():
+									# wasted transaction "arrival" passes the acception time window
+									break
+								candidate_dict[miner] = {}
+								candidate_dict[miner]['candidate_transmission_delay'] = candidate_transmission_delay
+								total_time_tracker = wasted_aggregate_time + wasted_candidate_transmission_delay
+			else:
+				# did not specify wait time. every associated worker perform specified number of local epochs
+				for miner_iter in range(len(associated_miners)):
+					miner = associated_workers[miner_iter]
+
+					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
+					local_params_used_by_miner = []
+					for (_, _, post_validation_transaction) in post_validation_transactions_by_miner:
+						if post_validation_transaction['update_direction']:
+							local_params_used_by_miner.append((post_validation_transaction['worker_device_idx'], post_validation_transaction["local_updates_params"]))
+
+					if not miner.return_idx() in worker.return_black_list():
+						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')	 
+						if miner.online_switcher():
+							miner_link_speed = miner.return_link_speed() 
+							lower_link_speed = worker_link_speed if worker_link_speed < miner_link_speed else miner_link_speed
+							aggregate_spent_time = miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round) #TODO need to check
+							unverified_candidate = miner.return_candidate_model_and_signature(comm_round) #TODO need to check
+							unverified_candidate_size = getsizeof(str(unverified_candidate))
+							candidate_transmission_delay = unverified_candidate_size/lower_link_speed
+							if worker.online_switcher():
+								# accept this transaction only if the worker is online
+								print(f"Worker {worker.return_idx()} has accepted this candidate.")
+								candadite_arrival_queue[time_tracker] = unverified_candidate
+							else:
+								print(f"Worker {worker.return_idx()} offline and unable to accept this candidate")
+						else:
+							print(f"miner {miner.return_idx()} offline and unable aggregate candidate model")
 					else:
-						print(f"worker {worker.return_idx()} has not accepted {candidate_model_transaction_iter}/{len(candidate_model_by_miner)} post-validation transaction from miner {miner.return_idx()} due to one of devices or both offline.")
-					candidate_model_transaction_iter += 1
-			worker.set_unordered_arrival_time_accepted_miner_transactions(miner_transactions_arrival_queue)
-			worker.worker_broadcast_miner_transactions() 
+						print(f"miner {miner.return_idx()} in worker {worker.return_idx()}'s black list. This miner's transactions won't be accpeted.")
+			worker.set_unordered_arrival_time_accepted_miner_candidate(candadite_arrival_queue)
+			# in case worker off line for accepting broadcasted transactions but can later back online to validate the transactions itself receives
+			worker.set_candidate_for_final_validating_queue(sorted(candadite_arrival_queue.items()))
+
+			# broadcast to other workers
+			if candadite_arrival_queue:
+				worker.worker_broadcast_miner_candidate() #TODO 
+			else:
+				print("No transactions have been received by this validator, probably due to workers and/or validators offline or timeout while doing local updates or transmitting updates, or all workers are in validator's black list.")
 
 
 		print(''' Step 4.5 - with the broadcasted miners transactions, workers decide the final transaction arrival order\n ''')
