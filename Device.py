@@ -97,6 +97,7 @@ class Device:
         self.unordered_arrival_time_accepted_miner_candidate = {}
         self.final_candidate_queue_to_validate = {}
         self.worker_accepted_broadcasted_miner_candidate = None or []
+        self.post_validation_candidate_queue = None or []
         ''' For validators '''
         self.validator_associated_worker_set = set()
         self.validation_rewards_this_round = 0
@@ -765,6 +766,9 @@ class Device:
     def set_unordered_arrival_time_accepted_miner_candidate(self, unordered_candidate_arrival_queue):
         self.unordered_arrival_time_accepted_miner_candidate = unordered_candidate_arrival_queue
 
+    def return_unordered_arrival_time_accepted_miner_candidate(self):
+        return  self.unordered_arrival_time_accepted_miner_candidate
+
     def malicious_worker_add_noise_to_weights(self, m):
         with torch.no_grad():
             if hasattr(m, 'weight'): #checks if the module m has a weight attribute
@@ -868,17 +872,94 @@ class Device:
     def return_final_candidate_validating_queue(self):
         return self.final_candidate_queue_to_validate
     
-    #TODO
-    def validate_candidate(self, weights_to_eval, validate_threshold):
-        candidate_validation_time = 0
-        candidate_accuracy = self.validate_model_weights(weights_to_eval)
-        candidate_leader = [] #records the candidate model passed the validate threshold
-        if candidate_accuracy > validate_threshold:
-            print(f"miner {self.idx}\' candidate model pass the validate threshold")
-            candidate_leader.append("miner id")
+    #TODO check
+    def validate_miner_candidate(self, candidate_to_validate, rewards, log_files_folder_path, comm_round, validate_threshold, malicious_validator_on):
+        log_files_folder_path_comm_round = f"{log_files_folder_path}/comm_{comm_round}"
+        if self.computation_power == 0:
+            print(f"worker {self.idx} has computation power 0 and will not be able to validate this candidate in time")
+            return False, False
+        else:
+            miner_candidate_device_idx = candidate_to_validate["miner_id"]
+            if miner_candidate_device_idx in self.black_list:
+                print(f"{miner_candidate_device_idx} is in worker's blacklist. Candidate won't get validated.")
+                return False, False
+            validation_time = time.time()
+            if self.check_signature:
+                candidate_before_signed = copy.deepcopy(candidate_to_validate)
+                del candidate_to_validate["miner_signature"]
+                modulus = candidate_to_validate['miner_rsa_pub_key']["modulus"]
+                pub_key = candidate_to_validate['miner_rsa_pub_key']["pub_key"]
+                signature = candidate_to_validate["miner_signature"]
+                # begin validation
+                # 1 - verify signature
+                hash = int.from_bytes(sha256(str(sorted(candidate_before_signed.items())).encode('utf-8')).digest(), byteorder='big')
+                hashFromSignature = pow(signature, pub_key, modulus)
+                if hash == hashFromSignature:
+                    print(f"Signature of candidate from miner {miner_candidate_device_idx} is verified by worker {self.idx}!")
+                    candidate_to_validate['miner_signature_valid'] = True
+                else:
+                    print(f"Signature invalid. candidate from miner {miner_candidate_device_idx} does NOT pass verification.")
+                    # will also add sig not verified candidate due to the worker's verification effort and its rewards needs to be recorded in the block
+                    candidate_to_validate['miner_signature_valid'] = False
+            else:
+                print(f"Signature of candidate from miner {miner_candidate_device_idx} is verified by validator {self.idx}!")
+                candidate_to_validate['miner_signature_valid'] = True
+            # 2 - validate worker's local_updates_params if worker's signature is valid
+            if candidate_to_validate['miner_signature_valid']:
+                accuracy_by_miner_candidate_using_worker_data = self.validate_model_weights(candidate_to_validate['candidate_model_params'])
+                print(f"After applying miner's candidate model, model accuracy becomes - {accuracy_by_miner_candidate_using_worker_data}")
+                # record their accuracies and difference for choosing a good validator threshold
+                is_malicious_validator = "M" if self.is_malicious else "B"
+                with open(f"{log_files_folder_path_comm_round}/worker_{self.idx}_{is_malicious_validator}_validation_records_comm_{comm_round}.txt", "a") as file:
+                    is_malicious_node = "M" if self.devices_dict[miner_candidate_device_idx].return_is_malicious() else "B"
+                    file.write(f"{accuracy_by_miner_candidate_using_worker_data}: worker {self.return_idx()} {is_malicious_validator} in round {comm_round} evluating miner {miner_candidate_device_idx},  {miner_candidate_device_idx}_maliciousness: {is_malicious_node}\n")
+                if accuracy_by_miner_candidate_using_worker_data < validate_threshold:
+                    candidate_to_validate['update_direction'] = False
+                    print(f"NOTE: miner {miner_candidate_device_idx}'s candidate model is deemed as suspiciously malicious by worker {self.idx}")
+                    # is it right?
+                    if not self.devices_dict[miner_candidate_device_idx].return_is_malicious():
+                        print(f"Warning - {miner_candidate_device_idx} is benign and this validation is wrong.")
+                        # for experiments
+                        with open(f"{log_files_folder_path}/false_negative_good_nodes_inside_victims.txt", 'a') as file:
+                            file.write(f"miner {miner_candidate_device_idx}'s candidate model accuracy is {accuracy_by_miner_candidate_using_worker_data}, by worker {self.idx} in round {comm_round}\n")
+                    else:
+                        with open(f"{log_files_folder_path}/true_negative_malicious_nodes_inside_caught.txt", 'a') as file:
+                            file.write(f"miner {miner_candidate_device_idx}'s candidate model accuracy is {accuracy_by_miner_candidate_using_worker_data}, by worker {self.idx} in round {comm_round}\n")
+                else:
+                    candidate_to_validate['update_direction'] = True
+                    print(f"miner {miner_candidate_device_idx}'s candidate model is deemed as GOOD by worker {self.idx}")
+                    # is it right?
+                    if self.devices_dict[miner_candidate_device_idx].return_is_malicious():
+                        print(f"Warning - {miner_candidate_device_idx} is malicious and this validation is wrong.")
+                        # for experiments
+                        with open(f"{log_files_folder_path}/false_positive_malious_nodes_inside_slipped.txt", 'a') as file:
+                            file.write(f"miner {miner_candidate_device_idx}'s candidate model accuracy is {accuracy_by_miner_candidate_using_worker_data}, by worker {self.idx} in round {comm_round}\n")
+                    else:
+                        with open(f"{log_files_folder_path}/true_positive_good_nodes_inside_correct.txt", 'a') as file:
+                            file.write(f"miner {miner_candidate_device_idx}'s candidate model accuracy is {accuracy_by_miner_candidate_using_worker_data}, by worker {self.idx} in round {comm_round}\n")
+                if self.is_malicious and malicious_validator_on:
+                    old_voting = candidate_to_validate['update_direction']
+                    candidate_to_validate['update_direction'] = not candidate_to_validate['update_direction']
+                    with open(f"{log_files_folder_path_comm_round}/malicious_validator_log.txt", 'a') as file:
+                        file.write(f"malicious worker {self.idx} has flipped the voting of miner {miner_candidate_device_idx} from {old_voting} to {candidate_to_validate['update_direction']} in round {comm_round}\n")
+                candidate_to_validate['validation_rewards'] = rewards
+            else:
+                candidate_to_validate['update_direction'] = 'N/A'
+                candidate_to_validate['validation_rewards'] = 0
+            candidate_to_validate['validation_done_by'] = self.idx
+            validation_time = (time.time() - validation_time)/self.computation_power
+            candidate_to_validate['validation_time'] = validation_time
+            candidate_to_validate['validator_rsa_pub_key'] = self.return_rsa_pub_key()
+            # assume signing done in negligible time
+            candidate_to_validate["validator_signature"] = self.sign_msg(sorted(candidate_to_validate.items()))
+            return validation_time, candidate_to_validate
         
-        return candidate_validation_time
+    def add_post_validation_candidate_to_queue(self, candidate_to_add):
+        self.post_validation_candidate_queue.append(candidate_to_add)
 
+    def return_post_validation_transactions_queue(self):
+        return self.post_validation_candidate_queue
+    
     def set_accuracy_this_round(self, accuracy):
         self.accuracy_this_round = accuracy
 
@@ -910,6 +991,7 @@ class Device:
         self.unordered_arrival_time_accepted_miner_candidate.clear()
         self.final_candidate_queue_to_validate.clear()
         self.worker_accepted_broadcasted_miner_candidate.clear()
+        self.post_validation_candidate_queue.clear()
 
     def receive_block_from_miner(self, received_block, source_miner):
         if not (received_block.return_mined_by() in self.black_list or source_miner in self.black_list):
@@ -1185,7 +1267,7 @@ class Device:
         return self.aggregate_time
 
     def return_candidate_model_and_signature(self, comm_round):
-        candidate_model_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_total_local_updates_this_round": self.aggregate_total_local_updates, "miner_rsa_pub_key": self.return_rsa_pub_key()}
+        candidate_model_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_total_local_updates": self.aggregate_total_local_updates, "miner_rsa_pub_key": self.return_rsa_pub_key()}
         candidate_model_dict["miner_signature"] = self.sign_msg(sorted(candidate_model_dict.items()))
         return candidate_model_dict
 
