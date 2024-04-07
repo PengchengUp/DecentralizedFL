@@ -649,7 +649,7 @@ if __name__=="__main__":
 			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} done calculating the ordered final candidate arrival order. Total {len(final_candidate_arrival_queue)} accepted candidate.")
 
 		
-		print(''' Step 5 - workers verify miners' signature and miners' candidate models by the order of transaction arrival time. Also vote the leader among miners.\n''')
+		print(''' Step 5 - workers verify miners' signature and miners' candidate models by the order of transaction arrival time.\n''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			final_candidate_arrival_queue = worker.return_final_candidate_validating_queue()
@@ -665,10 +665,66 @@ if __name__=="__main__":
 						print(f"A candidate validation process is skipped from miner {post_validation_unconfirmmed_transaction['miner_device_idx']} by vworker {worker.return_idx()} due to worker offline.")
 			else:
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} did not receive any candidate from worker or miner in this round.")
+        
+
+		print(''' Step 6 - workers send post validation candidatetransactions to associated miner and miner broadcasts these to other miners in their respecitve peer lists\n''')
+		for miner_iter in range(len(miners_this_round)):
+			miner = miners_this_round[miner_iter]
+			# resync chain
+			if miner.resync_chain(mining_consensus):
+				miner.update_model_after_chain_resync(log_files_folder_path, conn, conn_cursor)
+			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} accepting workers' post-validation candidate transactions...")
+			associated_workers = list(miner.return_associated_workers())
+			if not associated_workers:
+				print(f"No workers are associated with miner {miner.return_idx()} for this communication round.")
+				continue
+			self_miner_link_speed = miner.return_link_speed()
+			worker_candidate_transactions_arrival_queue = {}
+			for worker_iter in range(len(associated_workers)):
+				worker = associated_workers[worker_iter]
+				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(associated_workers)} of miner {miner.return_idx()} is sending signature verified transaction...")
+				post_validation_candidates_by_worker = worker.return_post_validation_transactions_queue()
+				post_validation_unconfirmmed_candidate_transaction_iter = 1
+				for (worker_sending_time, source_worker_link_spped, post_validation_unconfirmmed_candidate_transaction) in post_validation_candidates_by_worker:
+					if worker.online_switcher() and miner.online_switcher():
+						lower_link_speed = self_miner_link_speed if self_miner_link_speed < source_worker_link_spped else source_worker_link_spped
+						transmission_delay = getsizeof(str(post_validation_unconfirmmed_candidate_transaction))/lower_link_speed
+						worker_candidate_transactions_arrival_queue[worker_sending_time + transmission_delay] = post_validation_unconfirmmed_candidate_transaction
+						print(f"miner {miner.return_idx()} has accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_by_worker)} post-validation candidate transaction from worker {worker.return_idx()}")
+					else:
+						print(f"miner {miner.return_idx()} has not accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_by_worker)} post-validation candidate transaction from worker {worker.return_idx()} due to one of devices or both offline.")
+					post_validation_unconfirmmed_candidate_transaction_iter += 1
+			miner.set_unordered_arrival_time_accepted_worker_candidate_transactions(worker_candidate_transactions_arrival_queue)
+			miner.miner_broadcast_worker_candidate_transactions()
+			
+		print(''' Step 6.5 - with the broadcasted worker candidate transactions, miners decide the final candidate transaction arrival order\n ''')
+		for miner_iter in range(len(miners_this_round)):
+			miner = miners_this_round[miner_iter]
+			accepted_broadcasted_worker_candidate_transactions = miner.return_accepted_broadcasted_worker_candidate_transactions()
+			self_miner_link_speed = miner.return_link_speed()
+			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} calculating the final transactions arrival order by combining the direct worker candidate transactions received and received broadcasted candidatetransactions...")
+			accepted_broadcasted_candidate_transactions_arrival_queue = {}
+			if accepted_broadcasted_worker_candidate_transactions:
+				# calculate broadcasted transactions arrival time
+				for broadcasting_miner_record in accepted_broadcasted_worker_candidate_transactions:
+					broadcasting_miner_link_speed = broadcasting_miner_record['source_device_link_speed']
+					lower_link_speed = self_miner_link_speed if self_miner_link_speed < broadcasting_miner_link_speed else broadcasting_miner_link_speed
+					for arrival_time_at_broadcasting_miner, broadcasted_candidate_transaction in broadcasting_miner_record['broadcasted_camdidate_transactions'].items():
+						transmission_delay = getsizeof(str(broadcasted_candidate_transaction))/lower_link_speed
+						accepted_broadcasted_candidate_transactions_arrival_queue[transmission_delay + arrival_time_at_broadcasting_miner] = broadcasted_candidate_transaction
+			else:
+				print(f"miner {miner.return_idx()} {miner_iter+1}/{len(miners_this_round)} did not receive any broadcasted worker candidate transaction this round.")
+			# mix the boardcasted transactions with the direct accepted transactions
+			final_candidate_transactions_arrival_queue = sorted({**miner.return_unordered_arrival_time_accepted_worker_candidate_transactions(), **accepted_broadcasted_candidate_transactions_arrival_queue}.items())
+			miner.set_candidate_transactions_for_final_mining_queue(final_candidate_transactions_arrival_queue)
+			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} done calculating the ordered final candidatetransactions arrival order. Total {len(final_candidate_transactions_arrival_queue)} accepted candidatetransactions.")
 
 
-		print(''' Step 6 - Leader adds its own mined block as the legitimate block, and request its associated devices to download this block''')
+		print(''' Step 7 - miners do self and cross-verification (verify signature) by the order of transaction arrival time and record the transactions in the candidate block according to the limit size. Also mine and propagate the block.\n''')
+  		#根据精度对 candidate tx 排序
+		#miner统计投票结果确定 leader
 
+		
+		print(''' Step 8 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block''')
 
-		print(''' Step 6 last step - process the added block - 1.collect usable proxcy model\n 2.malicious nodes identification\n 3.get rewards\n 4.do local udpates\n This code block is skipped if no valid block was generated in this round''')
-
+		print(''' Step 8.5 last step - process the added block - 1.collect usable candidate models\n 2.malicious nodes identification\n 3.get rewards\n 4.do local udpates\n This code block is skipped if no valid block was generated in this round''')

@@ -114,8 +114,10 @@ class Device:
         self.miner_associated_worker_set = set()
         self.miner_associated_validator_set = set()
         self.miner_accepted_broadcasted_worker_transactions = None or []
+        self.miner_accepted_broadcasted_worker_candidate_transactions = None or []
         self.final_transactions_queue_to_validate = {}
         self.unordered_arrival_time_accepted_worker_transactions = {}
+        self.unordered_arrival_time_accepted_worker_candidate_transactions = {}
         # dict cannot be added to set()
         self.aggregate_time = None
         self.aggregate_rewards = 0
@@ -908,13 +910,14 @@ class Device:
             if candidate_to_validate['miner_signature_valid']:
                 accuracy_by_miner_candidate_using_worker_data = self.validate_model_weights(candidate_to_validate['candidate_model_params'])
                 print(f"After applying miner's candidate model, model accuracy becomes - {accuracy_by_miner_candidate_using_worker_data}")
+                candidate_to_validate["candidate_validation_accuracy"] = accuracy_by_miner_candidate_using_worker_data
                 # record their accuracies and difference for choosing a good validator threshold
                 is_malicious_validator = "M" if self.is_malicious else "B"
                 with open(f"{log_files_folder_path_comm_round}/worker_{self.idx}_{is_malicious_validator}_validation_records_comm_{comm_round}.txt", "a") as file:
                     is_malicious_node = "M" if self.devices_dict[miner_candidate_device_idx].return_is_malicious() else "B"
                     file.write(f"{accuracy_by_miner_candidate_using_worker_data}: worker {self.return_idx()} {is_malicious_validator} in round {comm_round} evluating miner {miner_candidate_device_idx},  {miner_candidate_device_idx}_maliciousness: {is_malicious_node}\n")
                 if accuracy_by_miner_candidate_using_worker_data < validate_threshold:
-                    candidate_to_validate['update_direction'] = False
+                    candidate_to_validate['candidate_direction'] = False
                     print(f"NOTE: miner {miner_candidate_device_idx}'s candidate model is deemed as suspiciously malicious by worker {self.idx}")
                     # is it right?
                     if not self.devices_dict[miner_candidate_device_idx].return_is_malicious():
@@ -926,7 +929,7 @@ class Device:
                         with open(f"{log_files_folder_path}/true_negative_malicious_nodes_inside_caught.txt", 'a') as file:
                             file.write(f"miner {miner_candidate_device_idx}'s candidate model accuracy is {accuracy_by_miner_candidate_using_worker_data}, by worker {self.idx} in round {comm_round}\n")
                 else:
-                    candidate_to_validate['update_direction'] = True
+                    candidate_to_validate['candidate_direction'] = True
                     print(f"miner {miner_candidate_device_idx}'s candidate model is deemed as GOOD by worker {self.idx}")
                     # is it right?
                     if self.devices_dict[miner_candidate_device_idx].return_is_malicious():
@@ -938,14 +941,15 @@ class Device:
                         with open(f"{log_files_folder_path}/true_positive_good_nodes_inside_correct.txt", 'a') as file:
                             file.write(f"miner {miner_candidate_device_idx}'s candidate model accuracy is {accuracy_by_miner_candidate_using_worker_data}, by worker {self.idx} in round {comm_round}\n")
                 if self.is_malicious and malicious_validator_on:
-                    old_voting = candidate_to_validate['update_direction']
-                    candidate_to_validate['update_direction'] = not candidate_to_validate['update_direction']
+                    old_voting = candidate_to_validate['candidate_direction']
+                    candidate_to_validate['candidate_direction'] = not candidate_to_validate['candidate_direction']
                     with open(f"{log_files_folder_path_comm_round}/malicious_validator_log.txt", 'a') as file:
-                        file.write(f"malicious worker {self.idx} has flipped the voting of miner {miner_candidate_device_idx} from {old_voting} to {candidate_to_validate['update_direction']} in round {comm_round}\n")
+                        file.write(f"malicious worker {self.idx} has flipped the voting of miner {miner_candidate_device_idx} from {old_voting} to {candidate_to_validate['candidate_direction']} in round {comm_round}\n")
                 candidate_to_validate['validation_rewards'] = rewards
             else:
-                candidate_to_validate['update_direction'] = 'N/A'
+                candidate_to_validate['candidate_direction'] = 'N/A'
                 candidate_to_validate['validation_rewards'] = 0
+                candidate_to_validate["candidate_validation_accuracy"] = 'N/A'
             candidate_to_validate['validation_done_by'] = self.idx
             validation_time = (time.time() - validation_time)/self.computation_power
             candidate_to_validate['validation_time'] = validation_time
@@ -1047,6 +1051,15 @@ class Device:
     def set_unordered_arrival_time_accepted_worker_transactions(self, unordered_transaction_arrival_queue):
         self.unordered_arrival_time_accepted_worker_transactions = unordered_transaction_arrival_queue
 
+    def return_unordered_arrival_time_accepted_worker_transactions(self):
+        return self.unordered_arrival_time_accepted_worker_transactions
+
+    def set_unordered_arrival_time_accepted_worker_candidate_transactions(self, unordered_candidate_transaction_arrival_queue)
+        self.unordered_arrival_time_accepted_worker_candidate_transactions = unordered_candidate_transaction_arrival_queue
+        
+    def return_unordered_arrival_time_accepted_worker_candidate_transactions(self):
+        return self.unordered_arrival_time_accepted_worker_candidate_transactions
+    
     def set_transaction_for_final_validating_queue(self, final_transactions_arrival_queue):
         self.final_transactions_queue_to_validate = final_transactions_arrival_queue
 
@@ -1067,6 +1080,23 @@ class Device:
                     else:
                         print(f"Destination miner {peer.return_idx()} is in this miner {self.idx}'s black_list. broadcasting skipped for this dest miner.")
 
+    def miner_broadcast_worker_candidate_transactions(self):
+        for peer in self.peer_list:
+            if peer.is_online():
+                if peer.return_role() == "miner":
+                    if not peer.return_idx() in self.black_list:
+                        print(f"miner {self.idx} is broadcasting received miner transactions to miner {peer.return_idx()}.")
+                        final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner = copy.copy(self.unordered_arrival_time_accepted_worker_candidate_transactions)
+                        # if offline, it's like the broadcasted transaction was not received, so skip a transaction
+                        for arrival_time, tx in self.unordered_arrival_time_accepted_worker_candidate_transactions.items():
+                            if not (self.online_switcher() and peer.online_switcher()):
+                                del final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner[arrival_time]
+                        # in the real distributed system, it should be broadcasting transaction one by one. Here we send the all received transactions(while online) and later calculate the order for the individual broadcasting transaction's arrival time mixed with the transactions itself received
+                        peer.accept_miner_broadcasted_worker_candidate_transactions(self, final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner)
+                        print(f"miner {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner)} worker transactions to miner {peer.return_idx()}.")
+                    else:
+                        print(f"Destination miner {peer.return_idx()} is in this miner {self.idx}'s black_list. broadcasting skipped for this dest miner.")
+
     def accept_miner_broadcasted_worker_transactions(self, source_miner, unordered_transaction_arrival_queue_from_source_miner):
         if not source_miner.return_idx() in self.black_list:
             self.miner_accepted_broadcasted_worker_transactions.append({'source_miner_link_speed': source_miner.return_link_speed(),'broadcasted_transactions': copy.deepcopy(unordered_transaction_arrival_queue_from_source_miner)})
@@ -1074,8 +1104,18 @@ class Device:
         else:
             print(f"Source miner {source_miner.return_idx()} is in miner {self.idx}'s black list. Broadcasted transactions not accepted.")
 
+    def accept_miner_broadcasted_worker_candidate_transactions(self, source_miner, unordered_candidate_transaction_arrival_queue_from_source_miner):
+        if not source_miner.return_idx() in self.black_list:
+            self.miner_accepted_broadcasted_worker_candidate_transactions.append({'source_miner_link_speed': source_miner.return_link_speed(),'broadcasted_candidate_transactions': copy.deepcopy(unordered_candidate_transaction_arrival_queue_from_source_miner)})
+            print(f"miner {self.idx} has accepted worker candidatetransactions from miner {source_miner.return_idx()}")
+        else:
+            print(f"Source miner {source_miner.return_idx()} is in miner {self.idx}'s black list. Broadcasted transactions not accepted.")
+
     def return_accepted_broadcasted_worker_transactions(self):
         return self.miner_accepted_broadcasted_worker_transactions
+
+    def return_accepted_broadcasted_worker_candidate_transactions(self):
+        return self.miner_accepted_broadcasted_worker_candidate_transactions
 
     def miner_update_model_by_one_epoch_and_validate_local_accuracy(self, opti):
         # return time spent
@@ -1436,8 +1476,10 @@ class Device:
         self.unconfirmmed_transactions.clear()
         self.broadcasted_transactions.clear()
         self.unordered_arrival_time_accepted_worker_transactions.clear()
+        self.unordered_arrival_time_accepted_worker_candidate_transactions.clear()
         # self.unconfirmmed_validator_transactions.clear()
         self.miner_accepted_broadcasted_worker_transactions.clear()
+        self.miner_accepted_broadcasted_worker_candidate_transactions.clear()
         self.mined_block = None
         self.received_propagated_block = None
         self.received_propagated_validator_block = None
