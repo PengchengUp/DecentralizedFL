@@ -723,6 +723,112 @@ if __name__=="__main__":
 		print(''' Step 7 - miners do self and cross-verification (verify signature) by the order of transaction arrival time and record the transactions in the candidate block according to the limit size. Also mine and propagate the block.\n''')
   		#根据精度对 candidate tx 排序
 		#miner统计投票结果确定 leader
+		for miner_iter in range(len(miners_this_round)):
+			miner = miners_this_round[miner_iter]
+			final_candidate_transactions_arrival_queue = miner.return_final_candidate_transactions_mining_queue()
+			valid_worker_sig_candidate_transacitons = []
+			invalid_worker_sig_candidate_transacitons = []
+			begin_mining_time = 0
+			new_begin_mining_time = begin_mining_time
+			if final_candidate_transactions_arrival_queue:
+				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is verifying received worker candidate transactions...")
+				time_limit = miner.return_miner_acception_wait_time()
+				size_limit = miner.return_miner_accepted_transactions_size_limit()
+				for (arrival_time, unconfirmmed_candidate_transaction) in final_candidate_transactions_arrival_queue:
+					if miner.online_switcher():
+						if time_limit:
+							if arrival_time > time_limit:
+								break
+						if size_limit:
+							if getsizeof(str(valid_worker_sig_candidate_transacitons+invalid_worker_sig_candidate_transacitons)) > size_limit:
+								break
+						# verify worker signature of this transaction
+						verification_time, is_worker_sig_valid = miner.verify_worker_transaction(unconfirmmed_candidate_transaction)
+						if verification_time:
+							if is_worker_sig_valid:
+								worker_info_this_tx = {
+								'worker': unconfirmmed_transaction['validation_done_by'],
+								'validation_rewards': unconfirmmed_candidate_transaction['validation_rewards'],
+								'validation_time': unconfirmmed_candidate_transaction['validation_time'],
+								'worker_rsa_pub_key': unconfirmmed_candidate_transaction['worker_rsa_pub_key'],
+								'worker_signature': unconfirmmed_candidate_transaction['worker_signature'],
+								'update_direction': unconfirmmed_candidate_transaction['candidate_direction'],
+								"candidate_model_accuracy": unconfirmmed_candidate_transaction['candidate_validation_accuracy'],
+								'miner_device_idx': miner.return_idx(),
+								'miner_verification_time': verification_time,
+								'miner_rewards_for_this_tx': rewards
+								}
+								# worker's transaction signature valid
+								found_same_worker_transaction = False
+								for valid_worker_sig_candidate_transaciton in valid_worker_sig_candidate_transacitons:
+									if valid_worker_sig_candidate_transaciton['worker_signature'] == unconfirmmed_transaction['worker_signature']:
+										found_same_worker_transaction = True
+										break
+								if not found_same_worker_transaction:
+									valid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_transaction)
+								if unconfirmmed_transaction['candidate_direction']:
+									valid_worker_sig_candidate_transaciton['positive_candidate'].append(worker_info_this_tx)
+								else:
+									valid_worker_sig_candidate_transaciton['negative_candidate'].append(worker_info_this_tx)
+								transaction_to_sign = valid_worker_sig_candidate_transaciton
+							else:
+								# worker's transaction signature invalid
+								invalid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_transaction)
+							signing_time = miner.sign_candidate_transaction(transaction_to_sign)
+							new_begin_mining_time = arrival_time + verification_time + signing_time							
+					else:
+						print(f"A verification process is skipped for the candidatetransaction from worker {unconfirmmed_transaction['validation_done_by']} by miner {miner.return_idx()} due to miner offline.")
+						new_begin_mining_time = arrival_time
+					begin_mining_time = new_begin_mining_time if new_begin_mining_time > begin_mining_time else begin_mining_time
+				
+				transactions_to_record_in_block = {}
+				transactions_to_record_in_block['valid_worker_sig_transacitons'] = valid_worker_sig_candidate_transacitons
+				transactions_to_record_in_block['invalid_worker_sig_transacitons'] = invalid_worker_sig_candidate_transacitons
+				# put transactions into candidate block and begin mining
+				# block index starts from 1
+				start_time_point = time.time()
+				candidate_block = Block(idx=miner.return_blockchain_object().return_chain_length()+1, transactions=transactions_to_record_in_block, miner_rsa_pub_key=miner.return_rsa_pub_key())
+
+				# mine the block #consensus
+				miner_computation_power = miner.return_computation_power() 
+				if not miner_computation_power:
+					block_generation_time_spent = float('inf')
+					miner.set_block_generation_time_point(float('inf'))
+					print(f"{miner.return_idx()} - miner mines a block in INFINITE time...")
+					continue
+				recorded_transactions = candidate_block.return_transactions()
+				if recorded_transactions['valid_validator_sig_transacitons'] or recorded_transactions['invalid_validator_sig_transacitons']:
+					print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} mining the block...")
+					# return the last block and add previous hash
+					last_block = miner.return_blockchain_object().return_last_block()
+					if last_block is None:
+						# will mine the genesis block
+						candidate_block.set_previous_block_hash(None)
+					else:
+						candidate_block.set_previous_block_hash(last_block.compute_hash(hash_entire_block=True))
+					# mine the candidate block by PoW, inside which the block_hash is also set
+					mined_block = miner.mine_block(candidate_block, rewards) #consensus
+				else:
+					print("No transaction to mine for this block.")
+					continue
+				
+				# unfortunately may go offline while propagating its block
+				if miner.online_switcher():
+					# sign the block
+					miner.sign_block(mined_block)
+					miner.set_mined_block(mined_block)
+					# record mining time
+					block_generation_time_spent = (time.time() - start_time_point)/miner_computation_power
+					miner.set_block_generation_time_point(begin_mining_time + block_generation_time_spent)
+					print(f"{miner.return_idx()} - miner mines a block in {block_generation_time_spent} seconds.")
+					# immediately propagate the block
+					miner.propagated_the_block(miner.return_block_generation_time_point(), mined_block)
+				else:
+					print(f"Unfortunately, {miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} goes offline after, if successful, mining a block. This if-successful-mined block is not propagated.")
+			else:
+				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from validator or miner in this round.")
+
+  
 
 		
 		print(''' Step 8 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block''')

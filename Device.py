@@ -953,9 +953,9 @@ class Device:
             candidate_to_validate['validation_done_by'] = self.idx
             validation_time = (time.time() - validation_time)/self.computation_power
             candidate_to_validate['validation_time'] = validation_time
-            candidate_to_validate['validator_rsa_pub_key'] = self.return_rsa_pub_key()
+            candidate_to_validate['worker_rsa_pub_key'] = self.return_rsa_pub_key()
             # assume signing done in negligible time
-            candidate_to_validate["validator_signature"] = self.sign_msg(sorted(candidate_to_validate.items()))
+            candidate_to_validate["worker_signature"] = self.sign_msg(sorted(candidate_to_validate.items()))
             return validation_time, candidate_to_validate
         
     def add_post_validation_candidate_to_queue(self, candidate_to_add):
@@ -1377,34 +1377,34 @@ class Device:
     def return_accepted_broadcasted_transactions(self):
         return self.broadcasted_transactions
 
-    def verify_validator_transaction(self, transaction_to_verify):
+    def verify_worker_transaction(self, transaction_to_verify):
         if self.computation_power == 0:
             print(f"miner {self.idx} has computation power 0 and will not be able to verify this transaction in time")
             return False, None
         else:
-            transaction_validator_idx = transaction_to_verify['validation_done_by']
-            if transaction_validator_idx in self.black_list:
-                print(f"{transaction_validator_idx} is in miner's blacklist. Trasaction won't get verified.")
+            transaction_worker_idx = transaction_to_verify['validation_done_by']
+            if transaction_worker_idx in self.black_list:
+                print(f"{transaction_worker_idx} is in miner's blacklist. Trasaction won't get verified.")
                 return False, None
             verification_time = time.time()
             if self.check_signature:
                 transaction_before_signed = copy.deepcopy(transaction_to_verify)
-                del transaction_before_signed["validator_signature"]
-                modulus = transaction_to_verify['validator_rsa_pub_key']["modulus"]
-                pub_key = transaction_to_verify['validator_rsa_pub_key']["pub_key"]
-                signature = transaction_to_verify["validator_signature"]
+                del transaction_before_signed["worker_signature"]
+                modulus = transaction_to_verify['worker_rsa_pub_key']["modulus"]
+                pub_key = transaction_to_verify['worker_rsa_pub_key']["pub_key"]
+                signature = transaction_to_verify["worker_signature"]
                 # begin verification
                 hash = int.from_bytes(sha256(str(sorted(transaction_before_signed.items())).encode('utf-8')).digest(), byteorder='big')
                 hashFromSignature = pow(signature, pub_key, modulus)
                 if hash == hashFromSignature:
-                    print(f"Signature of transaction from validator {transaction_validator_idx} is verified by {self.role} {self.idx}!")
+                    print(f"Signature of transaction from worker {transaction_worker_idx} is verified by {self.role} {self.idx}!")
                     verification_time = (time.time() - verification_time)/self.computation_power
                     return verification_time, True
                 else:
-                    print(f"Signature invalid. Transaction from validator {transaction_validator_idx} is NOT verified.")
+                    print(f"Signature invalid. Transaction from worker {transaction_worker_idx} is NOT verified.")
                     return (time.time() - verification_time)/self.computation_power, False
             else:
-                print(f"Signature of transaction from validator {transaction_validator_idx} is verified by {self.role} {self.idx}!")
+                print(f"Signature of transaction from worker {transaction_worker_idx} is verified by {self.role} {self.idx}!")
                 verification_time = (time.time() - verification_time)/self.computation_power
                 return verification_time, True
 
@@ -1424,6 +1424,9 @@ class Device:
         pow_mined_block.set_mining_rewards(rewards)
         return pow_mined_block
     
+    def proof_of_endorsement(self, candidate_block):
+        candidate_block.set_mined_by(self.idx)
+
     def proof_of_work(self, candidate_block, starting_nonce=0):
         candidate_block.set_mined_by(self.idx)
         ''' Brute Force the nonce '''
