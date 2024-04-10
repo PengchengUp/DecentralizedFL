@@ -1424,8 +1424,16 @@ class Device:
         pow_mined_block.set_mining_rewards(rewards)
         return pow_mined_block
     
+    #TODO find the leader among miners
     def proof_of_endorsement(self, candidate_block):
         candidate_block.set_mined_by(self.idx)
+        transactions_in_candidate_block = candidate_block.return_transactions['valid_worker_sig_transacitons'] #list, 元素是字典变量valid_worker_sig_transaciton
+        sorted_transactions = sorted(transactions_in_candidate_block, key=lambda x: x['candidate_validation_accuracy'], reverse=True) #按照candidate_validation_accuracy降序排序
+        Leader_idx = sorted_transactions[0]['miner_device_idx'] #选出精度最大的 candidate model 对应的miner的idx作为leader
+        max_candidate_model_accuracy = None
+        for tx in transactions_in_candidate_block: 
+            positive_candidate_models = tx['positive_candidate']  #this is a dict
+            
 
     def proof_of_work(self, candidate_block, starting_nonce=0):
         candidate_block.set_mined_by(self.idx)

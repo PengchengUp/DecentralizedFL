@@ -35,12 +35,7 @@ import shutil
 import torch
 import torch.nn.functional as F
 from Models import Mnist_2NN, Mnist_CNN
-from DeviceVBFL import Device, DevicesInNetwork
-from Worker import Worker
-from Validator import Validatoer
-from Miner import Miner
-
-
+from Device import Device, DevicesInNetwork
 from Block import Block
 from Blockchain import Blockchain
 
@@ -747,7 +742,7 @@ if __name__=="__main__":
 						if verification_time:
 							if is_worker_sig_valid:
 								worker_info_this_tx = {
-								'worker': unconfirmmed_transaction['validation_done_by'],
+								'worker': unconfirmmed_candidate_transaction['validation_done_by'],
 								'validation_rewards': unconfirmmed_candidate_transaction['validation_rewards'],
 								'validation_time': unconfirmmed_candidate_transaction['validation_time'],
 								'worker_rsa_pub_key': unconfirmmed_candidate_transaction['worker_rsa_pub_key'],
@@ -761,23 +756,33 @@ if __name__=="__main__":
 								# worker's transaction signature valid
 								found_same_worker_transaction = False
 								for valid_worker_sig_candidate_transaciton in valid_worker_sig_candidate_transacitons:
-									if valid_worker_sig_candidate_transaciton['worker_signature'] == unconfirmmed_transaction['worker_signature']:
+									if valid_worker_sig_candidate_transaciton['worker_signature'] == unconfirmmed_candidate_transaction['worker_signature']:
 										found_same_worker_transaction = True
 										break
 								if not found_same_worker_transaction:
-									valid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_transaction)
-								if unconfirmmed_transaction['candidate_direction']:
+									valid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_candidate_transaction)
+									del valid_worker_sig_candidate_transaciton['validation_done_by']
+									del valid_worker_sig_candidate_transaciton['validation_rewards']
+									del valid_worker_sig_candidate_transaciton['candidate_direction']
+									del valid_worker_sig_candidate_transaciton['validation_time']
+									del valid_worker_sig_candidate_transaciton['worker_rsa_pub_key']
+									del valid_worker_sig_candidate_transaciton['worker_signature']
+									del valid_worker_sig_candidate_transaciton['candidate_validation_accuracy']
+									valid_worker_sig_candidate_transaciton['positive_candidate'] = []
+									valid_worker_sig_candidate_transaciton['negative_candidate'] = []
+									valid_worker_sig_candidate_transacitons.append(valid_worker_sig_candidate_transaciton)
+								if unconfirmmed_candidate_transaction['candidate_direction']:
 									valid_worker_sig_candidate_transaciton['positive_candidate'].append(worker_info_this_tx)
 								else:
 									valid_worker_sig_candidate_transaciton['negative_candidate'].append(worker_info_this_tx)
 								transaction_to_sign = valid_worker_sig_candidate_transaciton
 							else:
 								# worker's transaction signature invalid
-								invalid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_transaction)
+								invalid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_candidate_transaction)
 							signing_time = miner.sign_candidate_transaction(transaction_to_sign)
 							new_begin_mining_time = arrival_time + verification_time + signing_time							
 					else:
-						print(f"A verification process is skipped for the candidatetransaction from worker {unconfirmmed_transaction['validation_done_by']} by miner {miner.return_idx()} due to miner offline.")
+						print(f"A verification process is skipped for the candidatetransaction from worker {unconfirmmed_candidate_transaction['validation_done_by']} by miner {miner.return_idx()} due to miner offline.")
 						new_begin_mining_time = arrival_time
 					begin_mining_time = new_begin_mining_time if new_begin_mining_time > begin_mining_time else begin_mining_time
 				
@@ -789,7 +794,7 @@ if __name__=="__main__":
 				start_time_point = time.time()
 				candidate_block = Block(idx=miner.return_blockchain_object().return_chain_length()+1, transactions=transactions_to_record_in_block, miner_rsa_pub_key=miner.return_rsa_pub_key())
 
-				# mine the block #consensus
+				# mine the block 
 				miner_computation_power = miner.return_computation_power() 
 				if not miner_computation_power:
 					block_generation_time_spent = float('inf')
@@ -797,7 +802,7 @@ if __name__=="__main__":
 					print(f"{miner.return_idx()} - miner mines a block in INFINITE time...")
 					continue
 				recorded_transactions = candidate_block.return_transactions()
-				if recorded_transactions['valid_validator_sig_transacitons'] or recorded_transactions['invalid_validator_sig_transacitons']:
+				if recorded_transactions['valid_worker_sig_transacitons'] or recorded_transactions['invalid_worker_sig_transacitons']:
 					print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} mining the block...")
 					# return the last block and add previous hash
 					last_block = miner.return_blockchain_object().return_last_block()
@@ -826,7 +831,7 @@ if __name__=="__main__":
 				else:
 					print(f"Unfortunately, {miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} goes offline after, if successful, mining a block. This if-successful-mined block is not propagated.")
 			else:
-				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from validator or miner in this round.")
+				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
 
   
 
