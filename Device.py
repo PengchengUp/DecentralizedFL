@@ -846,7 +846,7 @@ class Device:
             if peer.is_online():
                 if peer.return_role() == "worker":
                     if not peer.return_idx() in self.black_list:
-                        print(f"worker {self.idx} is broadcasting received worker candidate to worker {peer.return_idx()}.")
+                        print(f"worker {self.idx} is broadcasting received miner candidate to worker {peer.return_idx()}.")
                         final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker = copy.copy(self.unordered_arrival_time_accepted_miner_candidate)
                         # if offline, it's like the broadcasted transaction was not received, so skip a transaction
                         for arrival_time, tx in self.unordered_arrival_time_accepted_miner_candidate.items():
@@ -1054,7 +1054,7 @@ class Device:
     def return_unordered_arrival_time_accepted_worker_transactions(self):
         return self.unordered_arrival_time_accepted_worker_transactions
 
-    def set_unordered_arrival_time_accepted_worker_candidate_transactions(self, unordered_candidate_transaction_arrival_queue)
+    def set_unordered_arrival_time_accepted_worker_candidate_transactions(self, unordered_candidate_transaction_arrival_queue):
         self.unordered_arrival_time_accepted_worker_candidate_transactions = unordered_candidate_transaction_arrival_queue
         
     def return_unordered_arrival_time_accepted_worker_candidate_transactions(self):

@@ -662,7 +662,7 @@ if __name__=="__main__":
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} did not receive any candidate from worker or miner in this round.")
         
 
-		print(''' Step 6 - workers send post validation candidatetransactions to associated miner and miner broadcasts these to other miners in their respecitve peer lists\n''')
+		print(''' Step 6 - workers send post validation candidate transactions to associated miner and miner broadcasts these to other miners in their respecitve peer lists\n''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
 			# resync chain
@@ -678,16 +678,16 @@ if __name__=="__main__":
 			for worker_iter in range(len(associated_workers)):
 				worker = associated_workers[worker_iter]
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(associated_workers)} of miner {miner.return_idx()} is sending signature verified transaction...")
-				post_validation_candidates_by_worker = worker.return_post_validation_transactions_queue()
+				post_validation_candidates_queue_by_worker = worker.return_post_validation_transactions_queue()
 				post_validation_unconfirmmed_candidate_transaction_iter = 1
-				for (worker_sending_time, source_worker_link_spped, post_validation_unconfirmmed_candidate_transaction) in post_validation_candidates_by_worker:
+				for (worker_sending_time, source_worker_link_spped, post_validation_unconfirmmed_candidate_transaction) in post_validation_candidates_queue_by_worker:
 					if worker.online_switcher() and miner.online_switcher():
 						lower_link_speed = self_miner_link_speed if self_miner_link_speed < source_worker_link_spped else source_worker_link_spped
 						transmission_delay = getsizeof(str(post_validation_unconfirmmed_candidate_transaction))/lower_link_speed
 						worker_candidate_transactions_arrival_queue[worker_sending_time + transmission_delay] = post_validation_unconfirmmed_candidate_transaction
-						print(f"miner {miner.return_idx()} has accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_by_worker)} post-validation candidate transaction from worker {worker.return_idx()}")
+						print(f"miner {miner.return_idx()} has accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_queue_by_worker)} post-validation candidate transaction from worker {worker.return_idx()}")
 					else:
-						print(f"miner {miner.return_idx()} has not accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_by_worker)} post-validation candidate transaction from worker {worker.return_idx()} due to one of devices or both offline.")
+						print(f"miner {miner.return_idx()} has not accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_queue_by_worker)} post-validation candidate transaction from worker {worker.return_idx()} due to one of devices or both offline.")
 					post_validation_unconfirmmed_candidate_transaction_iter += 1
 			miner.set_unordered_arrival_time_accepted_worker_candidate_transactions(worker_candidate_transactions_arrival_queue)
 			miner.miner_broadcast_worker_candidate_transactions()
