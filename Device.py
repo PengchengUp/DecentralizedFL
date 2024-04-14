@@ -1427,13 +1427,15 @@ class Device:
     #TODO find the leader among miners
     def proof_of_endorsement(self, candidate_block):
         candidate_block.set_mined_by(self.idx)
-        transactions_in_candidate_block = candidate_block.return_transactions['valid_worker_sig_transacitons'] #list, 元素是字典变量valid_worker_sig_transaciton
+        transactions_in_candidate_block = candidate_block.return_transactions() 
+        valid_sig_transacitons = transactions_in_candidate_block["valid_worker_sig_transaciton"] #list, 元素是字典变量post_validation_candidate
         sorted_transactions = sorted(transactions_in_candidate_block, key=lambda x: x['candidate_validation_accuracy'], reverse=True) #按照candidate_validation_accuracy降序排序
         Leader_idx = sorted_transactions[0]['miner_device_idx'] #选出精度最大的 candidate model 对应的miner的idx作为leader
         max_candidate_model_accuracy = None
-        for tx in transactions_in_candidate_block: 
-            positive_candidate_models = tx['positive_candidate']  #this is a dict
-            
+        current_hash = candidate_block.compute_hash()
+        candidate_block.set_pow_proof(current_hash)
+
+        return candidate_block, Leader_idx, max_candidate_model_accuracy
 
     def proof_of_work(self, candidate_block, starting_nonce=0):
         candidate_block.set_mined_by(self.idx)
@@ -1447,6 +1449,7 @@ class Device:
         # return the qualified hash as a PoW proof, to be verified by other devices before adding the block
         # also set its hash as well. block_hash is the same as pow proof
         candidate_block.set_pow_proof(current_hash)
+        
         return candidate_block
 
     def set_block_generation_time_point(self, block_generation_time_point):

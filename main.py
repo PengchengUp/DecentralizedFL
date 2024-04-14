@@ -741,25 +741,24 @@ if __name__=="__main__":
 						verification_time, is_worker_sig_valid = miner.verify_worker_transaction(unconfirmmed_candidate_transaction)
 						if verification_time:
 							if is_worker_sig_valid:
-								worker_info_this_tx = {
-								'worker': unconfirmmed_candidate_transaction['validation_done_by'],
-								'validation_rewards': unconfirmmed_candidate_transaction['validation_rewards'],
-								'validation_time': unconfirmmed_candidate_transaction['validation_time'],
-								'worker_rsa_pub_key': unconfirmmed_candidate_transaction['worker_rsa_pub_key'],
-								'worker_signature': unconfirmmed_candidate_transaction['worker_signature'],
-								'update_direction': unconfirmmed_candidate_transaction['candidate_direction'],
-								"candidate_model_accuracy": unconfirmmed_candidate_transaction['candidate_validation_accuracy'],
+								validation_done_by_workers, validation_rewards_for_workers, validation_time_by_workers, candidate_model_accuracys_by_workers = [], [], [], []
+								this_candidate_tx_info = {
+								"candidate_from_miner": unconfirmmed_candidate_transaction['miner_idx'],
+								'validation_done_by_workers': validation_done_by_workers,
+								'validation_rewards_for_workers': validation_rewards_for_workers,
+								'validation_time_by_workers': validation_time_by_workers,
+								"candidate_model_accuracys": candidate_model_accuracys_by_workers,
 								'miner_device_idx': miner.return_idx(),
 								'miner_verification_time': verification_time,
 								'miner_rewards_for_this_tx': rewards
 								}
 								# worker's transaction signature valid
-								found_same_worker_transaction = False
+								found_same_candidate_transaction = False
 								for valid_worker_sig_candidate_transaciton in valid_worker_sig_candidate_transacitons:
-									if valid_worker_sig_candidate_transaciton['worker_signature'] == unconfirmmed_candidate_transaction['worker_signature']:
-										found_same_worker_transaction = True
+									if valid_worker_sig_candidate_transaciton['miner_idx'] == unconfirmmed_candidate_transaction['miner_idx']:
+										found_same_candidate_transaction = True
 										break
-								if not found_same_worker_transaction:
+								if not found_same_candidate_transaction:
 									valid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_candidate_transaction)
 									del valid_worker_sig_candidate_transaciton['validation_done_by']
 									del valid_worker_sig_candidate_transaciton['validation_rewards']
@@ -772,9 +771,9 @@ if __name__=="__main__":
 									valid_worker_sig_candidate_transaciton['negative_candidate'] = []
 									valid_worker_sig_candidate_transacitons.append(valid_worker_sig_candidate_transaciton)
 								if unconfirmmed_candidate_transaction['candidate_direction']:
-									valid_worker_sig_candidate_transaciton['positive_candidate'].append(worker_info_this_tx)
+									valid_worker_sig_candidate_transaciton['positive_candidate'].append(this_candidate_tx_info)
 								else:
-									valid_worker_sig_candidate_transaciton['negative_candidate'].append(worker_info_this_tx)
+									valid_worker_sig_candidate_transaciton['negative_candidate'].append(this_candidate_tx_info)
 								transaction_to_sign = valid_worker_sig_candidate_transaciton
 							else:
 								# worker's transaction signature invalid
