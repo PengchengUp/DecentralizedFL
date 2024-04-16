@@ -741,16 +741,17 @@ if __name__=="__main__":
 						verification_time, is_worker_sig_valid = miner.verify_worker_transaction(unconfirmmed_candidate_transaction)
 						if verification_time:
 							if is_worker_sig_valid:
-								validation_done_by_workers, validation_rewards_for_workers, validation_time_by_workers, candidate_model_accuracys_by_workers = [], [], [], []
 								this_candidate_tx_info = {
-								"candidate_from_miner": unconfirmmed_candidate_transaction['miner_idx'],
-								'validation_done_by_workers': validation_done_by_workers,
-								'validation_rewards_for_workers': validation_rewards_for_workers,
-								'validation_time_by_workers': validation_time_by_workers,
-								"candidate_model_accuracys": candidate_model_accuracys_by_workers,
+								'validation_done_by_worker': unconfirmmed_transaction['validation_done_by'],
+								'validation_reward_for_worker': unconfirmmed_transaction['validation_rewards'],
+								'validation_time_by_worker': unconfirmmed_transaction['validation_time'],
+								'worker_rsa_pub_key': unconfirmmed_transaction['worker_rsa_pub_key'],
+								'worker_signature': unconfirmmed_transaction['worker_signature'],
+								'candidate_direction': unconfirmmed_transaction['candidate_direction'],
+								"candidate_model_accuracy": unconfirmmed_transaction['candidate_validation_accuracy'],
 								'miner_device_idx': miner.return_idx(),
 								'miner_verification_time': verification_time,
-								'miner_rewards_for_this_tx': rewards
+								'miner_verification_rewards_for_this_tx': rewards
 								}
 								# worker's transaction signature valid
 								found_same_candidate_transaction = False
@@ -762,18 +763,18 @@ if __name__=="__main__":
 									valid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_candidate_transaction)
 									del valid_worker_sig_candidate_transaciton['validation_done_by']
 									del valid_worker_sig_candidate_transaciton['validation_rewards']
-									del valid_worker_sig_candidate_transaciton['candidate_direction']
 									del valid_worker_sig_candidate_transaciton['validation_time']
 									del valid_worker_sig_candidate_transaciton['worker_rsa_pub_key']
 									del valid_worker_sig_candidate_transaciton['worker_signature']
+									del valid_worker_sig_candidate_transaciton['candidate_direction']
 									del valid_worker_sig_candidate_transaciton['candidate_validation_accuracy']
-									valid_worker_sig_candidate_transaciton['positive_candidate'] = []
-									valid_worker_sig_candidate_transaciton['negative_candidate'] = []
+									valid_worker_sig_candidate_transaciton['supported_workers'] = []
+									valid_worker_sig_candidate_transaciton['opposed_workers'] = []
 									valid_worker_sig_candidate_transacitons.append(valid_worker_sig_candidate_transaciton)
 								if unconfirmmed_candidate_transaction['candidate_direction']:
-									valid_worker_sig_candidate_transaciton['positive_candidate'].append(this_candidate_tx_info)
+									valid_worker_sig_candidate_transaciton['supported_workers'].append(this_candidate_tx_info)
 								else:
-									valid_worker_sig_candidate_transaciton['negative_candidate'].append(this_candidate_tx_info)
+									valid_worker_sig_candidate_transaciton['opposed_workers'].append(this_candidate_tx_info)
 								transaction_to_sign = valid_worker_sig_candidate_transaciton
 							else:
 								# worker's transaction signature invalid
@@ -831,8 +832,6 @@ if __name__=="__main__":
 					print(f"Unfortunately, {miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} goes offline after, if successful, mining a block. This if-successful-mined block is not propagated.")
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
-
-  
 
 		
 		print(''' Step 8 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block''')
