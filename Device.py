@@ -132,7 +132,7 @@ class Device:
         # when miner directly accepts validators' updates
         self.unordered_arrival_time_accepted_validator_transactions = {}
         self.miner_accepted_broadcasted_validator_transactions = None or []
-        self.final_candidate_transactions_queue_to_mine = {}
+        self.final_candidate_transactions_queue_to_mine = []
         self.block_generation_time_point = None
         self.unordered_propagated_block_processing_queue = {} # pure simulation queue and does not exist in real distributed system
         ''' For malicious node '''
@@ -1417,25 +1417,38 @@ class Device:
         signing_time = (time.time() - signing_time)/self.computation_power
         return signing_time
 
-    def mine_block(self, candidate_block, rewards, starting_nonce=0):
+    # def mine_block(self, candidate_block, rewards, starting_nonce=0):
+    #     candidate_block.set_mined_by(self.idx)
+    #     pow_mined_block = self.proof_of_work(candidate_block)
+    #     # pow_mined_block.set_mined_by(self.idx)
+    #     pow_mined_block.set_mining_rewards(rewards)
+    #     return pow_mined_block
+    def mine_block(self, candidate_block, rewards):
         candidate_block.set_mined_by(self.idx)
-        pow_mined_block = self.proof_of_work(candidate_block)
+        mined_block, leader_idx, max_candidate_model_accuracy = self.proof_of_endorsement(candidate_block)
         # pow_mined_block.set_mined_by(self.idx)
-        pow_mined_block.set_mining_rewards(rewards)
-        return pow_mined_block
+        mined_block.set_mining_rewards(rewards)
+        mined_block.set_leader_id(leader_idx)
+        mined_block.set_max_candidate_model_accuracy(max_candidate_model_accuracy)
+        return mined_block
     
     #TODO find the leader among miners
     def proof_of_endorsement(self, candidate_block):
         candidate_block.set_mined_by(self.idx)
         transactions_in_candidate_block = candidate_block.return_transactions() 
-        valid_sig_transacitons = transactions_in_candidate_block["valid_worker_sig_transaciton"] #list, 元素是字典变量post_validation_candidate
-        sorted_transactions = sorted(transactions_in_candidate_block, key=lambda x: x['candidate_validation_accuracy'], reverse=True) #按照candidate_validation_accuracy降序排序
-        Leader_idx = sorted_transactions[0]['miner_device_idx'] #选出精度最大的 candidate model 对应的miner的idx作为leader
-        max_candidate_model_accuracy = None
+        valid_sig_transacitons_in_candidate_block = transactions_in_candidate_block["valid_worker_sig_transaciton"] #list, 元素是字典变量post_validation_candidate
+        for transaciton_in_candidate_block in  valid_sig_transacitons_in_candidate_block: 
+            supported_infos = transaciton_in_candidate_block['supported_workers']
+            average_accuracy_of_this_candidate_model = sum(info['candidate_model_accuracy'] for info in supported_infos) / len(supported_infos)
+            transaciton_in_candidate_block['average_accuracy_of_this_candidate_model'] = average_accuracy_of_this_candidate_model
+        sorted_valid_sig_transacitons_in_candidate_block = sorted(valid_sig_transacitons_in_candidate_block, key=lambda x: x['average_accuracy_of_this_candidate_model'], reverse=True)
+        transactions_in_candidate_block["valid_worker_sig_transaciton"] = sorted_valid_sig_transacitons_in_candidate_block
+        leader_idx = sorted_valid_sig_transacitons_in_candidate_block[0]['miner_idx']
+        max_candidate_model_accuracy = sorted_valid_sig_transacitons_in_candidate_block[0]['average_accuracy_of_this_candidate_model']
         current_hash = candidate_block.compute_hash()
         candidate_block.set_pow_proof(current_hash)
 
-        return candidate_block, Leader_idx, max_candidate_model_accuracy
+        return candidate_block, leader_idx, max_candidate_model_accuracy
 
     def proof_of_work(self, candidate_block, starting_nonce=0):
         candidate_block.set_mined_by(self.idx)
