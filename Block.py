@@ -19,6 +19,10 @@ class Block:
 		self._pow_proof = pow_proof
 		self._signature = signature
 
+		#for proof_of_endorsement
+		self.leader_id = None
+		self.max_candidate_model_accuracy = None
+
 	# compute_hash() also used to return value for block verification
 	# if False by default, used for pow and verification, in which pow_proof has to be None, because at this moment -
 	# pow - block hash is None, so does not affect much
@@ -83,6 +87,12 @@ class Block:
 
 	def set_mining_rewards(self, mining_rewards):
 		self._mining_rewards = mining_rewards
+
+	def set_leader_id(self, leader_id):
+		self.leader_id = leader_id
+
+	def set_max_candidate_model_accuracy(self, max_candidate_model_accuracy):
+		self.max_candidate_model_accuracy = max_candidate_model_accuracy
 
 	def return_mining_rewards(self):
 		return self._mining_rewards
