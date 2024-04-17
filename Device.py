@@ -304,14 +304,14 @@ class Device:
         # WILL ALWAYS RETURN TRUE AS OFFLINE PEERS WON'T BE REMOVED ANY MORE, UNLESS ALL PEERS ARE MALICIOUS...but then it should not register with any other peer. Original purpose - if peer_list ends up empty, randomly register with another device
         return False if not self.peer_list else True
 
-    def check_pow_proof(self, block_to_check):
-        # remove its block hash(compute_hash() by default) to verify pow_proof as block hash was set after pow
-        pow_proof = block_to_check.return_pow_proof()
-        # print("pow_proof", pow_proof)
+    def check_hash(self, block_to_check):
+        # remove its block hash(compute_hash() by default) to verify hash as block hash was set after pow
+        hash = block_to_check.return_hash()
+        # print("hash", hash)
         # print("compute_hash", block_to_check.compute_hash())
         #It checks if the PoW starts with a string of zeros whose length is equal to the PoW difficulty specified in the class (self.pow_difficulty).
         #It also verifies that the PoW matches the hash of the block (block_to_check.compute_hash()).
-        return pow_proof.startswith('0' * self.pow_difficulty) and pow_proof == block_to_check.compute_hash()  
+        return hash == block_to_check.compute_hash()  
     
 
     def check_chain_validity(self, chain_to_check):
@@ -321,7 +321,7 @@ class Device:
         else:
             chain_to_check = chain_to_check.return_chain_structure()
             for block in chain_to_check[1:]:
-                if self.check_pow_proof(block) and block.return_previous_block_hash() == chain_to_check[chain_to_check.index(block) - 1].compute_hash(hash_entire_block=True):
+                if self.check_hash(block) and block.return_previous_block_hash() == chain_to_check[chain_to_check.index(block) - 1].compute_hash(hash_entire_block=True):
                     pass
                 else:
                     return False
@@ -439,8 +439,8 @@ class Device:
             print(f"The miner {mined_by} mined this block is in {self.idx}'s black list. Block will not be verified.")
             return False, False
         # check if the proof is valid(verify _block_hash).
-        if not self.check_pow_proof(block_to_verify):
-            print(f"PoW proof of the block from miner {self.idx} is not verified.")
+        if not self.check_hash(block_to_verify):
+            print(f"Hash of the block from miner {self.idx} is not verified.")
             return False, False
         # # check if miner's signature is valid
         if self.check_signature:
@@ -464,6 +464,11 @@ class Device:
                 if block_to_verify.return_previous_block_hash() != last_block_hash:
                     print(f"Block sent by miner {sending_miner} mined by miner {mined_by} has the previous hash recorded as {block_to_verify.return_previous_block_hash()}, but the last block's hash in chain is {last_block_hash}. This is possibly due to a forking event from last round. Block not verified and won't be added. Device needs to resync chain next round.")
                     return False, False
+        # check if mined by leader
+        leader_in_own_block = self.return_mined_block().return_leader_id()
+        if mined_by != leader_in_own_block.return_leader():
+            print(f"The block sent by miner {sending_miner} mined by miner {mined_by} is not from the leader. Block not verified and won't be added. Device needs to resync chain next round.")
+            return False, False
         # All verifications done.
         print(f"Block accepted from miner {sending_miner} mined by {mined_by} has been verified by {self.idx}!")
         verification_time = (time.time() - verification_time)/self.computation_power
@@ -1446,7 +1451,7 @@ class Device:
         leader_idx = sorted_valid_sig_transacitons_in_candidate_block[0]['miner_idx']
         max_candidate_model_accuracy = sorted_valid_sig_transacitons_in_candidate_block[0]['average_accuracy_of_this_candidate_model']
         current_hash = candidate_block.compute_hash()
-        candidate_block.set_pow_proof(current_hash)
+        candidate_block.set_hash(current_hash)
 
         return candidate_block, leader_idx, max_candidate_model_accuracy
 
