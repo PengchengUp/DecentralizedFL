@@ -84,7 +84,7 @@ parser.add_argument('-cons', '--consensus', type=str, default='PoW', help="inclu
 parser.add_argument('-mt', '--miner_acception_wait_time', type=float, default=0.0, help="default time window for miners to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-wt', '--worker_acception_wait_time', type=float, default=0.0, help="default time window for workers to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-ml', '--miner_accepted_transactions_size_limit', type=float, default=0.0, help="no further transactions will be accepted by miner after this limit. 0 means no size limit. either this or -mt has to be specified, or both. This param determines the final block_size")
-parser.add_argument('-mp', '--miner_pos_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoS")
+parser.add_argument('-mp', '--miner_poe_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoE")
 parser.add_argument('-vh', '--validate_threshold', type=float, default=0.5, help="a threshold value of accuracy difference to determine malicious worker") #TODO
 parser.add_argument('-md', '--malicious_updates_discount', type=float, default=0.0, help="do not entirely drop the voted negative worker transaction because that risks the same worker dropping the entire transactions and repeat its accuracy again and again and will be kicked out. Apply a discount factor instead to the false negative worker's updates are by some rate applied so it won't repeat")
 parser.add_argument('-mv', '--malicious_validator_on', type=int, default=0, help="let malicious validator flip voting result")
@@ -847,55 +847,28 @@ if __name__=="__main__":
 			this_miner_mined_block = miner.return_mined_block()
 			if this_miner_mined_block:
 				unordered_propagated_block_processing_queue[miner.return_block_generation_time_point()] = this_miner_mined_block
-			ordered_all_blocks_processing_queue = sorted(unordered_propagated_block_processing_queue.items())
+			ordered_all_blocks_processing_queue = sorted(unordered_propagated_block_processing_queue.items()) # list of tuples (time_point, block)
 
 			if ordered_all_blocks_processing_queue:
-				if mining_consensus == 'PoW':#consensus
-					print("\nselect winning block based on PoW")
-					# abort mining if propagated block is received
-					print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is deciding if a valid propagated block arrived before it successfully mines its own block...")
-					for (block_arrival_time, block_to_verify) in ordered_all_blocks_processing_queue:
-						verified_block, verification_time = miner.verify_block(block_to_verify, block_to_verify.return_mined_by())
-						if verified_block:
-							block_mined_by = verified_block.return_mined_by()
-							if block_mined_by == miner.return_idx():
-								print(f"Miner {miner.return_idx()} is adding its own mined block.")
-							else:
-								print(f"Miner {miner.return_idx()} will add a propagated block mined by miner {verified_block.return_mined_by()}.")
-							if miner.online_switcher():
-								miner.add_block(verified_block)
-							else:
-								print(f"Unfortunately, miner {miner.return_idx()} goes offline while adding this block to its chain.")
-							if miner.return_the_added_block():
-								# requesting devices in its associations to download this block
-								miner.request_to_download(verified_block, block_arrival_time + verification_time)
-								break								
-				else:
-					# PoS #consensus
-					candidate_PoS_blocks = {}
-					print("select winning block based on PoS")
-					# filter the ordered_all_blocks_processing_queue to contain only the blocks within time limit
-					for (block_arrival_time, block_to_verify) in ordered_all_blocks_processing_queue:
-						if block_arrival_time < args['miner_pos_propagated_block_wait_time']:
-							candidate_PoS_blocks[devices_in_network.devices_set[block_to_verify.return_mined_by()].return_stake()] = block_to_verify
-					high_to_low_stake_ordered_blocks = sorted(candidate_PoS_blocks.items(), reverse=True)
-					# for PoS, requests every device in the network to add a valid block that has the most miner stake in the PoS candidate blocks list, which can be verified through chain
-					for (stake, PoS_candidate_block) in high_to_low_stake_ordered_blocks:
-						verified_block, verification_time = miner.verify_block(PoS_candidate_block, PoS_candidate_block.return_mined_by())
-						if verified_block:
-							block_mined_by = verified_block.return_mined_by()
-							if block_mined_by == miner.return_idx():
-								print(f"Miner {miner.return_idx()} with stake {stake} is adding its own mined block.")
-							else:
-								print(f"Miner {miner.return_idx()} will add a propagated block mined by miner {verified_block.return_mined_by()} with stake {stake}.")
-							if miner.online_switcher():
-								miner.add_block(verified_block)
-							else:
-								print(f"Unfortunately, miner {miner.return_idx()} goes offline while adding this block to its chain.")
-							if miner.return_the_added_block():
-								# requesting devices in its associations to download this block
-								miner.request_to_download(verified_block, block_arrival_time + verification_time)
-								break
+				candidate_PoE_blocks = {}
+				print("select winning block based on PoE")
+				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is deciding if a valid propagated block arrived before it successfully mines its own block...")
+				for (block_arrival_time, block_to_verify) in ordered_all_blocks_processing_queue:
+					verified_block, verification_time = miner.verify_block(block_to_verify, block_to_verify.return_mined_by())
+					if verified_block:
+						block_mined_by = verified_block.return_mined_by()
+						if block_mined_by == miner.return_idx():
+							print(f"Miner {miner.return_idx()} is adding its own mined block.")
+						else:
+							print(f"Miner {miner.return_idx()} will add a propagated block mined by miner {verified_block.return_mined_by()}.")
+						if miner.online_switcher():
+							miner.add_block(verified_block)
+						else:
+							print(f"Unfortunately, miner {miner.return_idx()} goes offline while adding this block to its chain.")
+						if miner.return_the_added_block():
+							# requesting devices in its associations to download this block
+							miner.request_to_download(verified_block, block_arrival_time + verification_time)
+							break	
 				miner.add_to_round_end_time(block_arrival_time + verification_time)
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} does not receive a propagated block and has not mined its own block yet.")
