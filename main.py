@@ -553,7 +553,8 @@ if __name__=="__main__":
 				for miner_iter in range(len(associated_miners)):
 					miner = associated_workers[miner_iter]
 					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
-					local_params_used_by_miner = miner.return_local_params_used_by_miner
+					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
+					miner.set_local_updates_used_info_by_miner()
 					if not miner.return_idx() in worker.return_black_list():
 						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')
 						# time_tracker = 0
@@ -582,7 +583,8 @@ if __name__=="__main__":
 				for miner_iter in range(len(associated_miners)):
 					miner = associated_workers[miner_iter]
 					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
-					local_params_used_by_miner = miner.return_local_params_used_by_miner
+					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
+					miner.set_local_updates_used_info_by_miner()
 					if not miner.return_idx() in worker.return_black_list():
 						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')	 
 						if miner.online_switcher():
@@ -900,7 +902,7 @@ if __name__=="__main__":
 		for device in devices_list:
 			if device.return_the_added_block() and device.online_switcher():
 				# collect usable updated params, malicious nodes identification, get rewards and do local udpates
-				processing_time = device.process_block(device.return_the_added_block(), log_files_folder_path, conn, conn_cursor)
+				processing_time = device.process_block(device.return_the_added_block(), log_files_folder_path, conn, conn_cursor) ###
 				device.other_tasks_at_the_end_of_comm_round(comm_round, log_files_folder_path)
 				device.add_to_round_end_time(processing_time)
 				all_devices_round_ends_time.append(device.return_round_end_time())

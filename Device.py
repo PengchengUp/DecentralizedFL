@@ -121,7 +121,7 @@ class Device:
         # dict cannot be added to set()
         self.aggregate_time = None
         self.aggregate_rewards = 0
-        self.aggregate_total_local_updates = 0
+        self.aggregate_local_updates_info = []
         self.unconfirmmed_transactions = None or []
         self.broadcasted_transactions = None or []
         self.mined_block = None
@@ -485,9 +485,9 @@ class Device:
     # Main function
     # also accumulate rewards here
     def process_block(self, block_to_process, log_files_folder_path, conn, conn_cursor, when_resync=False):
-        # collect usable updated params, 
+        # validate the candidate model, 
         # malicious nodes identification,
-        # get rewards and do local udpates
+        # get rewards 
         processing_time = time.time()
         if not self.online_switcher():
             print(f"{self.role} {self.idx} goes offline when processing the added block. Model not updated and rewards information not upgraded. Outdated information may be obtained by this node if it never resyncs to a different chain.") # may need to set up a flag indicating if a block has been processed
@@ -497,16 +497,16 @@ class Device:
                 # in this system black list is also consistent across devices as it is calculated based on the information on chain, but individual device can decide its own validation/verification mechanisms and has its own 
                 print(f"The added block is mined by miner {block_to_process.return_mined_by()}, which is in this device's black list. Block will not be processed.")
             else:
-                # process validator sig valid transactions
+                # process worker sig valid transactions
                 # used to count positive and negative transactions worker by worker, select the transaction to do global update and identify potential malicious worker
                 self_rewards_accumulator = 0
-                valid_transactions_records_by_worker = {}
+                valid_transactions_records_by_worker = {}#####
                 valid_validator_sig_worker_transacitons_in_block = block_to_process.return_transactions()['valid_validator_sig_transacitons']
                 comm_round = block_to_process.return_block_idx()
                 self.active_worker_record_by_round[comm_round] = set()
                 for valid_validator_sig_worker_transaciton in valid_validator_sig_worker_transacitons_in_block:
                     # verify miner's signature(miner does not get reward for receiving and aggregating)
-                    if self.verify_miner_transaction_by_signature(valid_validator_sig_worker_transaciton, mined_by):
+                    if self.verify_miner_transaction_by_signature(valid_validator_sig_worker_transaciton, mined_by):###
                         worker_device_idx = valid_validator_sig_worker_transaciton['worker_device_idx'] # Extract Worker Device Index
                         self.active_worker_record_by_round[comm_round].add(worker_device_idx) # Update Active Worker Record
                         if not worker_device_idx in valid_transactions_records_by_worker.keys(): # Initialize Valid Transactions Records for Worker
@@ -1273,9 +1273,14 @@ class Device:
             if post_validation_transaction['update_direction']:
                 local_params_used_by_miner.append((post_validation_transaction['worker_device_idx'], post_validation_transaction["local_updates_params"]))
         return local_params_used_by_miner
+    
+    def set_local_updates_used_info_by_miner(self,post_validation_transactions_by_miner):
+        for (_, _, post_validation_transaction) in post_validation_transactions_by_miner:
+            if post_validation_transaction['update_direction']:
+                self.aggregate_local_updates_info.append({'worker_device_idx':post_validation_transaction['worker_device_idx'], "local_updates_rewards": post_validation_transaction["local_updates_rewards"], "validation_rewards": post_validation_transaction["validation_rewards"],"validation_done_by":post_validation_transaction["validation_done_by"]})
 
     #TODO rewards and different aggregate methods
-    def aggregate_candidate_model(self, local_update_params_potentially_to_be_used, rewards, log_files_folder_path_comm_round, comm_round):
+    def aggregate_candidate_model(self, local_update_params_potentially_to_be_used, local_updates_info_potentially_to_be_used, rewards, log_files_folder_path_comm_round, comm_round):
         print(f"Miner {self.idx} is aggregating candidate model with computation power {self.computation_power} and link speed {round(self.link_speed,3)} bytes/s")
         # filter local_params
         local_params_by_benign_workers = []
@@ -1296,7 +1301,6 @@ class Device:
                         sum_parameters[var] += local_updates_params[var]
             # number of finally filtered workers' updates
             num_participants = len(local_params_by_benign_workers)
-            self.aggregate_total_local_updates = num_participants
             for var in self.candidate_parameters:
                 self.candidate_parameters[var] = (sum_parameters[var] / num_participants)
             print(f"A candidate model is produced by {self.idx}")
@@ -1312,7 +1316,7 @@ class Device:
         return self.aggregate_time
 
     def return_candidate_model_and_signature(self, comm_round):
-        candidate_model_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_total_local_updates": self.aggregate_total_local_updates, "miner_rsa_pub_key": self.return_rsa_pub_key()}
+        candidate_model_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_local_updates_info": self.aggregate_local_updates_info, "miner_rsa_pub_key": self.return_rsa_pub_key()}
         candidate_model_dict["miner_signature"] = self.sign_msg(sorted(candidate_model_dict.items()))
         return candidate_model_dict
 
@@ -1523,7 +1527,7 @@ class Device:
 #		self.block_to_add = None
         self.unordered_propagated_block_processing_queue.clear()
         self.round_end_time = 0
-        self.aggregate_total_local_updates = 0
+        self.aggregate_local_updates_info = []
         self.aggregate_rewards = 0
         self.aggregate_time = None
 
