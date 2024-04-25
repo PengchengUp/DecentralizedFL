@@ -485,9 +485,10 @@ class Device:
     # Main function
     # also accumulate rewards here
     def process_block(self, block_to_process, log_files_folder_path, conn, conn_cursor, when_resync=False):
-        # validate the candidate model, 
-        # malicious nodes identification,
-        # get rewards 
+        # get the global model from the block
+        # get rewards
+        # return process time
+        # malicious nodes identification(TODO)
         processing_time = time.time()
         if not self.online_switcher():
             print(f"{self.role} {self.idx} goes offline when processing the added block. Model not updated and rewards information not upgraded. Outdated information may be obtained by this node if it never resyncs to a different chain.") # may need to set up a flag indicating if a block has been processed
@@ -500,179 +501,90 @@ class Device:
                 # process worker sig valid transactions
                 # used to count positive and negative transactions worker by worker, select the transaction to do global update and identify potential malicious worker
                 self_rewards_accumulator = 0
-                valid_transactions_records_by_worker = {}#####
-                valid_validator_sig_worker_transacitons_in_block = block_to_process.return_transactions()['valid_validator_sig_transacitons']
+                #valid_transactions_records_by_worker = {}#####
+                valid_worker_sig_transacitons_in_block = block_to_process.return_transactions()['valid_worker_sig_transacitons']
                 comm_round = block_to_process.return_block_idx()
-                self.active_worker_record_by_round[comm_round] = set()
-                for valid_validator_sig_worker_transaciton in valid_validator_sig_worker_transacitons_in_block:
-                    # verify miner's signature(miner does not get reward for receiving and aggregating)
-                    if self.verify_miner_transaction_by_signature(valid_validator_sig_worker_transaciton, mined_by):###
-                        worker_device_idx = valid_validator_sig_worker_transaciton['worker_device_idx'] # Extract Worker Device Index
-                        self.active_worker_record_by_round[comm_round].add(worker_device_idx) # Update Active Worker Record
-                        if not worker_device_idx in valid_transactions_records_by_worker.keys(): # Initialize Valid Transactions Records for Worker
-                            valid_transactions_records_by_worker[worker_device_idx] = {}
-                            valid_transactions_records_by_worker[worker_device_idx]['positive_epochs'] = set()
-                            valid_transactions_records_by_worker[worker_device_idx]['negative_epochs'] = set()
-                            valid_transactions_records_by_worker[worker_device_idx]['all_valid_epochs'] = set()
-                            valid_transactions_records_by_worker[worker_device_idx]['finally_used_params'] = None
-                        # epoch of this worker's local update
-                        local_epoch_seq = valid_validator_sig_worker_transaciton['local_total_accumulated_epochs_this_round']
-                        positive_direction_validators = valid_validator_sig_worker_transaciton['positive_direction_validators']
-                        negative_direction_validators = valid_validator_sig_worker_transaciton['negative_direction_validators']
-                        if len(positive_direction_validators) >= len(negative_direction_validators):
-                            # worker transaction can be used
-                            valid_transactions_records_by_worker[worker_device_idx]['positive_epochs'].add(local_epoch_seq)
-                            valid_transactions_records_by_worker[worker_device_idx]['all_valid_epochs'].add(local_epoch_seq)
-                            # see if this is the latest epoch from this worker
-                            if local_epoch_seq == max(valid_transactions_records_by_worker[worker_device_idx]['all_valid_epochs']):
-                                valid_transactions_records_by_worker[worker_device_idx]['finally_used_params'] = valid_validator_sig_worker_transaciton['local_updates_params']
-                            # give rewards to this worker
-                            if self.idx == worker_device_idx:
-                                self_rewards_accumulator += valid_validator_sig_worker_transaciton['local_updates_rewards']
+                #self.active_worker_record_by_round[comm_round] = set()#####
+                finally_used_candidate_model_params = []
+                for valid_worker_sig_miner_transaciton in valid_worker_sig_transacitons_in_block:
+                    # verify miner's signature
+                    if self.verify_miner_transaction_by_signature(valid_worker_sig_miner_transaciton, mined_by):###check def verify_miner_transaction_by_signature
+                        miner_device_idx = valid_worker_sig_miner_transaciton['miner_idx'] # Extract miner Device Index
+                        aggregate_local_updates_info = valid_worker_sig_miner_transaciton['aggregate_local_updates_info'] # [{'worker_device_idx':post_validation_transaction['worker_device_idx'], "local_updates_rewards": post_validation_transaction["local_updates_rewards"], "validation_rewards": post_validation_transaction["validation_rewards"],"validation_done_by":post_validation_transaction["validation_done_by”}]
+                        supported_workers = valid_worker_sig_miner_transaciton['supported_workers'] #[{this_candidate_tx_info},{this_candidate_tx_info}]
+                        opposed_workers = valid_worker_sig_miner_transaciton['opposed_workers']
+                        #get global model from the block
+                        if len(valid_worker_sig_transacitons_in_block) == 1:
+                            self.global_parameters = copy.deepcopy(valid_worker_sig_miner_transaciton["candidate_model_params"])
                         else:
-                            if self.malicious_updates_discount:
-                                # worker transaction voted negative and has to be applied for a discount
-                                valid_transactions_records_by_worker[worker_device_idx]['negative_epochs'].add(local_epoch_seq)
-                                valid_transactions_records_by_worker[worker_device_idx]['all_valid_epochs'].add(local_epoch_seq)
-                                # see if this is the latest epoch from this worker
-                                if local_epoch_seq == max(valid_transactions_records_by_worker[worker_device_idx]['all_valid_epochs']):
-                                    # apply discount
-                                    discounted_valid_validator_sig_worker_transaciton_local_updates_params = copy.deepcopy(valid_validator_sig_worker_transaciton['local_updates_params'])
-                                    for var in discounted_valid_validator_sig_worker_transaciton_local_updates_params:
-                                        discounted_valid_validator_sig_worker_transaciton_local_updates_params[var] *= self.malicious_updates_discount
-                                    valid_transactions_records_by_worker[worker_device_idx]['finally_used_params'] = discounted_valid_validator_sig_worker_transaciton_local_updates_params
-                                # worker receive discounted rewards for negative update
-                                if self.idx == worker_device_idx:
-                                    self_rewards_accumulator += valid_validator_sig_worker_transaciton['local_updates_rewards'] * self.malicious_updates_discount
-                            else:
-                                # discount specified as 0, worker transaction voted negative and cannot be used
-                                valid_transactions_records_by_worker[worker_device_idx]['negative_epochs'].add(local_epoch_seq)
-                                # worker does not receive rewards for negative update
-                        # give rewards to validators and the miner in this transaction
-                        for validator_record in positive_direction_validators + negative_direction_validators:
-                            if self.idx == validator_record['validator']:
-                                self_rewards_accumulator += validator_record['validation_rewards']
-                            if self.idx == validator_record['miner_device_idx']:
-                                self_rewards_accumulator += validator_record['miner_rewards_for_this_tx']
-                    else:
-                        print(f"one validator transaction miner sig found invalid in this block. {self.idx} will drop this block and roll back rewards information")
-                        return
-                
-                # identify potentially malicious worker
-                self.untrustworthy_workers_record_by_comm_round[comm_round] = set()
-                for worker_idx, local_updates_direction_records in valid_transactions_records_by_worker.items():
-                    if len(local_updates_direction_records['negative_epochs']) >  len(local_updates_direction_records['positive_epochs']):
-                        self.untrustworthy_workers_record_by_comm_round[comm_round].add(worker_idx)
-                        kick_out_accumulator = 1
-                        # check previous rounds to determine if the worker device has been marked as untrustworthy consistently across multiple rounds.
-                        for comm_round_to_check in range(comm_round - self.knock_out_rounds + 1, comm_round):
-                            if comm_round_to_check in self.untrustworthy_workers_record_by_comm_round.keys():
-                                if worker_idx in self.untrustworthy_workers_record_by_comm_round[comm_round_to_check]:
-                                    kick_out_accumulator += 1
-                        if kick_out_accumulator == self.knock_out_rounds:
-                            # kick out
-                            self.black_list.add(worker_idx)
-                            # is it right?
-                            if when_resync:
-                                msg_end = " when resyncing!\n"
-                            else:
-                                msg_end = "!\n"
-                            if self.devices_dict[worker_idx].return_is_malicious():
-                                msg = f"{self.idx} has successfully identified a malicious worker device {worker_idx} in comm_round {comm_round}{msg_end}"
-                                with open(f"{log_files_folder_path}/correctly_kicked_workers.txt", 'a') as file:
-                                    file.write(msg)
-                                conn_cursor.execute("INSERT INTO malicious_workers_log VALUES (?, ?, ?, ?, ?, ?)", (worker_idx, 1, self.idx, "", comm_round, when_resync))
-                                conn.commit()
-                            else:
-                                msg = f"WARNING: {self.idx} has mistakenly regard {worker_idx} as a malicious worker device in comm_round {comm_round}{msg_end}"
-                                with open(f"{log_files_folder_path}/mistakenly_kicked_workers.txt", 'a') as file:
-                                    file.write(msg)
-                                conn_cursor.execute("INSERT INTO malicious_workers_log VALUES (?, ?, ?, ?, ?, ?)", (worker_idx, 0, "", self.idx, comm_round, when_resync))
-                                conn.commit()
-                            print(msg)
-                           
-                            # cont = print("Press ENTER to continue")
-                
-                # identify potentially compromised validator
-                self.untrustworthy_validators_record_by_comm_round[comm_round] = set()
-                invalid_validator_sig_worker_transacitons_in_block = block_to_process.return_transactions()['invalid_validator_sig_transacitons']
-                for invalid_validator_sig_worker_transaciton in invalid_validator_sig_worker_transacitons_in_block:
-                    if self.verify_miner_transaction_by_signature(invalid_validator_sig_worker_transaciton, mined_by):
-                        validator_device_idx = invalid_validator_sig_worker_transaciton['validator']
-                        self.untrustworthy_validators_record_by_comm_round[comm_round].add(validator_device_idx)
-                        kick_out_accumulator = 1
-                        # check previous rounds
-                        for comm_round_to_check in range(comm_round - self.knock_out_rounds + 1, comm_round):
-                            if comm_round_to_check in self.untrustworthy_validators_record_by_comm_round.keys():
-                                if validator_device_idx in self.untrustworthy_validators_record_by_comm_round[comm_round_to_check]:
-                                    kick_out_accumulator += 1
-                        if kick_out_accumulator == self.knock_out_rounds:
-                            # kick out
-                            self.black_list.add(validator_device_idx)
-                            print(f"{validator_device_idx} has been regarded as a compromised validator by {self.idx} in {comm_round}.")
-                            # actually, we did not let validator do malicious thing if is_malicious=1 is set to this device. In the submission of 2020/10, we only focus on catching malicious worker
-                            # is it right?
-                            # if when_resync:
-                            #	 msg_end = " when resyncing!\n"
-                            # else:
-                            #	 msg_end = "!\n"
-                            # if self.devices_dict[validator_device_idx].return_is_malicious():
-                            #	 msg = f"{self.idx} has successfully identified a compromised validator device {validator_device_idx} in comm_round {comm_round}{msg_end}"
-                            #	 with open(f"{log_files_folder_path}/correctly_kicked_validators.txt", 'a') as file:
-                            #		 file.write(msg)
-                            # else:
-                            #	 msg = f"WARNING: {self.idx} has mistakenly regard {validator_device_idx} as a compromised validator device in comm_round {comm_round}{msg_end}"
-                            #	 with open(f"{log_files_folder_path}/mistakenly_kicked_validators.txt", 'a') as file:
-                            #		 file.write(msg)
-                            # print(msg)
-                            # cont = print("Press ENTER to continue")
-                    else:
-                        print(f"one validator transaction miner sig found invalid in this block. {self.idx} will drop this block and roll back rewards information")
-                        return
-                    # give rewards to the miner in this transaction
-                    if self.idx == invalid_validator_sig_worker_transaciton['miner_device_idx']:
-                        self_rewards_accumulator += invalid_validator_sig_worker_transaciton['miner_rewards_for_this_tx']
+                            finally_used_candidate_model_params.append(valid_worker_sig_miner_transaciton["candidate_model_params"])
 
-                # miner gets mining rewards
-                if self.idx == mined_by:
-                    self_rewards_accumulator += block_to_process.return_mining_rewards()
+                        #get rewards
+                        # give leader rewards
+                        if self.idx == miner_device_idx:
+                            self_rewards_accumulator += valid_worker_sig_miner_transaciton['aggregate_rewards']
+                        # give worker validate rewards
+                        for validate_worker_record in supported_workers + opposed_workers:
+                            if self.idx == validate_worker_record['validation_done_by_worker']:
+                                self_rewards_accumulator += validate_worker_record['validation_reward_for_worker']
+                        # give worker update rewards and give miner validate rewards
+                        for local_update_info in aggregate_local_updates_info.items():
+                            if self.idx == local_update_info["worker_device_idx"]:
+                                self_rewards_accumulator += local_update_info["local_updates_rewards"]
+                            if self.idx == local_update_info["validation_done_by"]:
+                                self_rewards_accumulator += local_update_info["validation_rewards"]
+                    else:
+                        print(f"one validator transaction miner sig found invalid in this block. {self.idx} will drop this block and roll back rewards information")
+                        return
+                    
+                if len(valid_worker_sig_transacitons_in_block) > 1:
+                    print(f"more than one candidate models found in this block. {self.idx} will aggregate these candidate models as the final global model")
+                    if self.online_switcher():
+                        self.global_update(finally_used_candidate_model_params)
+                    else:
+                        print(f"Unfortunately, {self.role} {self.idx} goes offline when it's doing global_updates.")
+                
+                # miner gets mining rewards(TODO)
+                # if self.idx == mined_by:
+                #     self_rewards_accumulator += block_to_process.return_mining_rewards()
                 # set received rewards this round based on info from this block
                 self.receive_rewards(self_rewards_accumulator)
                 print(f"{self.role} {self.idx} has received total {self_rewards_accumulator} rewards for this comm round.")
 
-                # collect usable worker updates and do global updates
-                finally_used_local_params = []
-                # record True Positive, False Positive, True Negative and False Negative for identified workers
-                TP, FP, TN, FN = 0, 0, 0, 0
-                for worker_device_idx, local_params_record in valid_transactions_records_by_worker.items():
-                    is_worker_malicious = self.devices_dict[worker_device_idx].return_is_malicious()
-                    if local_params_record['finally_used_params']:
-                        # identified as benigh worker
-                        finally_used_local_params.append((worker_device_idx, local_params_record['finally_used_params'])) # could be None
-                        if not is_worker_malicious:
-                            TP += 1
-                        else:
-                            FP += 1
-                    else:
-                        # identified as malicious worker
-                        if is_worker_malicious:
-                            TN += 1
-                        else:
-                            FN += 1
-                if self.online_switcher():
-                    self.global_update(finally_used_local_params)
-                else:
-                    print(f"Unfortunately, {self.role} {self.idx} goes offline when it's doing global_updates.")
+                # # collect usable worker updates and do global updates
+                # finally_used_local_params = []
+                # # record True Positive, False Positive, True Negative and False Negative for identified workers
+                # TP, FP, TN, FN = 0, 0, 0, 0
+                # for worker_device_idx, local_params_record in valid_transactions_records_by_worker.items():
+                #     is_worker_malicious = self.devices_dict[worker_device_idx].return_is_malicious()
+                #     if local_params_record['finally_used_params']:
+                #         # identified as benigh worker
+                #         finally_used_local_params.append((worker_device_idx, local_params_record['finally_used_params'])) # could be None
+                #         if not is_worker_malicious:
+                #             TP += 1
+                #         else:
+                #             FP += 1
+                #     else:
+                #         # identified as malicious worker
+                #         if is_worker_malicious:
+                #             TN += 1
+                #         else:
+                #             FN += 1
+                # if self.online_switcher():
+                #     self.global_update(finally_used_local_params)
+                # else:
+                #     print(f"Unfortunately, {self.role} {self.idx} goes offline when it's doing global_updates.")
         
-        malicious_worker_validation_log_path = f"{log_files_folder_path}/comm_{comm_round}/malicious_worker_validation_log.txt"
-        if not os.path.exists(malicious_worker_validation_log_path):
-            with open(malicious_worker_validation_log_path, 'w') as file:
-                accuracy = (TP + TN) / (TP + TN + FP + FN) if (TP + TN) else 0
-                precision = TP / (TP + FP) if TP else 0
-                recall = TP / (TP + FN) if TP else 0
-                f1 = precision * recall / (precision + recall) if precision * recall else 0
-                file.write(f"In comm_{comm_round} of validating workers, TP = {TP}, FP = {FP}, TN = {TN}, FN = {FN}. \
-                        \nAccuracy = {accuracy}, Precision = {precision}, Recall = {recall}, F1 Score = {f1}")
+        # malicious_worker_validation_log_path = f"{log_files_folder_path}/comm_{comm_round}/malicious_worker_validation_log.txt"
+        # if not os.path.exists(malicious_worker_validation_log_path):
+        #     with open(malicious_worker_validation_log_path, 'w') as file:
+        #         accuracy = (TP + TN) / (TP + TN + FP + FN) if (TP + TN) else 0
+        #         precision = TP / (TP + FP) if TP else 0
+        #         recall = TP / (TP + FN) if TP else 0
+        #         f1 = precision * recall / (precision + recall) if precision * recall else 0
+        #         file.write(f"In comm_{comm_round} of validating workers, TP = {TP}, FP = {FP}, TN = {TN}, FN = {FN}. \
+        #                 \nAccuracy = {accuracy}, Precision = {precision}, Recall = {recall}, F1 Score = {f1}")
+                
         processing_time = (time.time() - processing_time)/self.computation_power
         return processing_time
 
