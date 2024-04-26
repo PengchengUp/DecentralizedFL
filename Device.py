@@ -670,8 +670,8 @@ class Device:
                     miners_in_peer_list.add(peer)
         if not miners_in_peer_list:
             return False
-        self.worker_associated_miner = random.sample(miners_in_peer_list, 1)[0]
-        return self.worker_associated_miner
+        self.worker_associated_miner_set = random.sample(miners_in_peer_list, 2)
+        return self.worker_associated_miner_set
 
     def return_worker_acception_wait_time(self):
         return self.worker_acception_wait_time
@@ -1190,7 +1190,7 @@ class Device:
                 self.aggregate_local_updates_info.append({'worker_device_idx':post_validation_transaction['worker_device_idx'], "local_updates_rewards": post_validation_transaction["local_updates_rewards"], "validation_rewards": post_validation_transaction["validation_rewards"],"validation_done_by":post_validation_transaction["validation_done_by"]})
 
     #TODO rewards and different aggregate methods
-    def aggregate_candidate_model(self, local_update_params_potentially_to_be_used, local_updates_info_potentially_to_be_used, rewards, log_files_folder_path_comm_round, comm_round):
+    def aggregate_candidate_model(self, local_update_params_potentially_to_be_used, rewards, log_files_folder_path_comm_round, comm_round):
         print(f"Miner {self.idx} is aggregating candidate model with computation power {self.computation_power} and link speed {round(self.link_speed,3)} bytes/s")
         # filter local_params
         local_params_by_benign_workers = []
@@ -1214,7 +1214,7 @@ class Device:
             for var in self.candidate_parameters:
                 self.candidate_parameters[var] = (sum_parameters[var] / num_participants)
             print(f"A candidate model is produced by {self.idx}")
-            #self.aggregate_rewards += rewards * (label.shape[0]) #setting rewards 
+            self.aggregate_rewards += rewards * len(local_update_params_potentially_to_be_used) #setting rewards 
             with open(f"{log_files_folder_path_comm_round}/miner_{self.idx}_candidate_model_accuracies_comm_{comm_round}.txt", "a") as file:
                 file.write(f"{self.return_idx()} round_{comm_round} {self.return_role()}: {self.validate_model_weights(self.net.state_dict())}\n") #self.validate_model_weights(self.net.state_dict())是否可用？
             try:
