@@ -47,7 +47,7 @@ NETWORK_SNAPSHOTS_BASE_FOLDER = "snapshots"
 # log_files_folder_path = f"/content/drive/MyDrive/BFA/logs/{date_time}"
 # NETWORK_SNAPSHOTS_BASE_FOLDER = "/content/drive/MyDrive/BFA/snapshots"
 
-parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="Block_FedAvg_Simulation")
+parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="Blockchain_FedAvg_Simulation")
 
 # debug attributes
 parser.add_argument('-g', '--gpu', type=str, default='0', help='gpu id to use(e.g. 0,1,2,3)')
@@ -657,7 +657,7 @@ if __name__=="__main__":
 						candidate_validation_time, post_validation_candidate = worker.validate_miner_candidate(unconfirmmed_candidate,  rewards, log_files_folder_path, comm_round, args['validate_threshold'], args['malicious_miner_on'])  #TODO 
 						if candidate_validation_time:
 							worker.add_post_validation_candidate_to_queue((arrival_time + candidate_validation_time, worker.return_link_speed(), post_validation_candidate))
-							print(f"A validation process has been done for the transaction from worker {post_validation_unconfirmmed_transaction['worker_device_idx']} by validator {validator.return_idx()}")			
+							print(f"A validation process has been done for the transaction from miner {post_validation_unconfirmmed_transaction['worker_device_idx']} by validator {worker.return_idx()}")			
 					else:
 						print(f"A candidate validation process is skipped from miner {post_validation_unconfirmmed_transaction['miner_device_idx']} by vworker {worker.return_idx()} due to worker offline.")
 			else:
