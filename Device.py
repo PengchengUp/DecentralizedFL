@@ -89,8 +89,7 @@ class Device:
         self.local_updates_rewards_per_transaction = 0
         self.received_block_from_miner = None
         self.accuracy_this_round = float('-inf')
-        self.worker_associated_validator = None
-        self.worker_associated_miner = None
+        self.worker_associated_miner_set = set()
         self.local_update_time = None
         self.local_total_epoch = 0
         self.worker_acception_wait_time = worker_acception_wait_time
@@ -103,16 +102,11 @@ class Device:
         self.validation_rewards_this_round = 0
         self.accuracies_this_round = {}
         self.validator_associated_miner = None
-        # when validator directly accepts workers' updates
-        # self.unordered_arrival_time_accepted_worker_transactions = {}
-        # self.validator_accepted_broadcasted_worker_transactions = None or []
-        # self.final_transactions_queue_to_validate = {}
         self.post_validation_transactions_queue = None or []
         self.validate_threshold = validate_threshold
         self.validator_local_accuracy = None
         ''' For miners '''
         self.miner_associated_worker_set = set()
-        self.miner_associated_validator_set = set()
         self.miner_accepted_broadcasted_worker_transactions = None or []
         self.miner_accepted_broadcasted_worker_candidate_transactions = None or []
         self.final_transactions_queue_to_validate = {}
@@ -903,8 +897,7 @@ class Device:
         self.local_updates_rewards_per_transaction = 0
         self.has_added_block = False
         self.the_added_block = None
-        self.worker_associated_validator = None
-        self.worker_associated_miner = None
+        self.worker_associated_miner_set.clear()
         self.local_update_time = None
         self.local_total_epoch = 0
         self.variance_of_noises.clear()
@@ -954,6 +947,8 @@ class Device:
         else:
             print(f"There are no available local params for {self.idx} to perform global updates in this comm round.")
         
+    def return_associated_miners(self):
+        return vars(self)[f'{self.role}_associated_miner_set']
         
     ''' miner '''
     def add_device_to_association(self, to_add_device):
@@ -979,6 +974,9 @@ class Device:
     
     def set_transaction_for_final_validating_queue(self, final_transactions_arrival_queue):
         self.final_transactions_queue_to_validate = final_transactions_arrival_queue
+
+    def return_final_transactions_validating_queue(self):
+        return self.final_transactions_queue_to_validate
 
     def miner_broadcast_worker_transactions(self):
         for peer in self.peer_list:
@@ -1420,7 +1418,6 @@ class Device:
 
     def miner_reset_vars_for_new_round(self):
         self.miner_associated_worker_set.clear()
-        self.miner_associated_validator_set.clear()
         self.unconfirmmed_transactions.clear()
         self.broadcasted_transactions.clear()
         self.unordered_arrival_time_accepted_worker_transactions.clear()

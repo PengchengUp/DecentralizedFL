@@ -74,20 +74,20 @@ parser.add_argument('-le', '--default_local_epochs', type=int, default=5, help='
 
 # blockchain system consensus attributes
 parser.add_argument('-ur', '--unit_reward', type=int, default=1, help='unit reward for providing data, verification of signature, validation and so forth')
-parser.add_argument('-ko', '--knock_out_rounds', type=int, default=6, help="a worker or validator device is kicked out of the device's peer list(put in black list) if it's identified as malicious for this number of rounds")
-parser.add_argument('-lo', '--lazy_worker_knock_out_rounds', type=int, default=10, help="a worker device is kicked out of the device's peer list(put in black list) if it does not provide updates for this number of rounds, due to too slow or just lazy to do updates and only accept the model udpates.(do not care lazy validator or miner as they will just not receive rewards)")
+parser.add_argument('-ko', '--knock_out_rounds', type=int, default=6, help="a worker or miner device is kicked out of the device's peer list(put in black list) if it's identified as malicious for this number of rounds")
+parser.add_argument('-lo', '--lazy_worker_knock_out_rounds', type=int, default=10, help="a worker device is kicked out of the device's peer list(put in black list) if it does not provide updates for this number of rounds, due to too slow or just lazy to do updates and only accept the model udpates.(do not care lazy miner as they will just not receive rewards)")
 parser.add_argument('-pow', '--pow_difficulty', type=int, default=0, help="if set to 0, meaning miners are not using PoW")
 parser.add_argument('-cons', '--consensus', type=str, default='PoW', help="including PoW, PoS, PBFT")
 
 
-# blockchain FL validator/miner restriction tuning parameters
+# blockchain FL miner restriction tuning parameters
 parser.add_argument('-mt', '--miner_acception_wait_time', type=float, default=0.0, help="default time window for miners to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-wt', '--worker_acception_wait_time', type=float, default=0.0, help="default time window for workers to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-ml', '--miner_accepted_transactions_size_limit', type=float, default=0.0, help="no further transactions will be accepted by miner after this limit. 0 means no size limit. either this or -mt has to be specified, or both. This param determines the final block_size")
 parser.add_argument('-mp', '--miner_poe_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoE")
 parser.add_argument('-vh', '--validate_threshold', type=float, default=0.5, help="a threshold value of accuracy difference to determine malicious worker") #TODO
 parser.add_argument('-md', '--malicious_updates_discount', type=float, default=0.0, help="do not entirely drop the voted negative worker transaction because that risks the same worker dropping the entire transactions and repeat its accuracy again and again and will be kicked out. Apply a discount factor instead to the false negative worker's updates are by some rate applied so it won't repeat")
-parser.add_argument('-mv', '--malicious_validator_on', type=int, default=0, help="let malicious validator flip voting result")
+parser.add_argument('-mv', '--malicious_miner_on', type=int, default=0, help="let malicious miner flip voting result")
 
 
 # distributed system attributes
@@ -97,7 +97,7 @@ parser.add_argument('-dts', '--base_data_transmission_speed', type=float, defaul
 parser.add_argument('-ecp', '--even_computation_power', type=int, default=1, help="This variable is used to simulate strength of hardware equipment. The calculation time will be shrunk down by this value. Default value 1 means evenly assign computation power to 1. If set to 0, power is randomly initiated as an int between 0 and 4, both included.")
 
 # simulation attributes
-parser.add_argument('-ha', '--hard_assign', type=str, default='*,*,*', help="hard assign number of roles in the network, order by worker, validator and miner. e.g. 12,5,3 assign 12 workers, 5 validators and 3 miners. \"*,*,*\" means completely random role-assigning in each communication round ")
+parser.add_argument('-ha', '--hard_assign', type=str, default='*,*', help="hard assign number of roles in the network, order by worker and miner. e.g. 12,8 assign 12 workers and 8 miners. \"*,*\" means completely random role-assigning in each communication round")
 parser.add_argument('-aio', '--all_in_one', type=int, default=1, help='let all nodes be aware of each other in the network while registering')
 parser.add_argument('-cs', '--check_signature', type=int, default=1, help='if set to 0, all signatures are assumed to be verified to save execution time')
 
@@ -154,7 +154,7 @@ if __name__=="__main__":
 		except:
 			workers_needed = 1
 		try:
-			miners_needed = int(roles_requirement[2])
+			miners_needed = int(roles_requirement[-1])
 		except:
 			miners_needed = 1
 	else:
@@ -188,7 +188,7 @@ if __name__=="__main__":
 		except:
 			workers_needed = 1
 		try:
-			miners_needed = int(roles_requirement[2])
+			miners_needed = int(roles_requirement[-1])
 		except:
 			miners_needed = 1
 
@@ -539,7 +539,7 @@ if __name__=="__main__":
 		print(''' Step 4 - workers accept candidate models and broadcast to other workers in their respective peer lists (miners aggregate_candidate_model() are called in this step.\n''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
-			associated_miners = list(worker.associate_with_miner())
+			associated_miners = list(worker.return_associated_miners())
 			if not associated_miners:
 				print(f"No miners are associated with worker {worker.return_idx()} for this communication round.")
 				continue
@@ -571,7 +571,7 @@ if __name__=="__main__":
 								print(f'{miner.return_idx()}-miner candidate model arrival time exceeds the worker waiting time')
 								break
 							if worker.online_switcher():
-								# accept this transaction only if the validator is online
+								# accept this transaction only if the worker is online
 								print(f"Worker {worker.return_idx()} has accepted this candidate.")
 								candadite_arrival_queue[aggregate_spent_time + candidate_transmission_delay] = unverified_candidate
 							else:
@@ -612,7 +612,7 @@ if __name__=="__main__":
 			if candadite_arrival_queue:
 				worker.worker_broadcast_miner_candidate() #TODO 
 			else:
-				print("No transactions have been received by this validator, probably due to workers and/or validators offline or timeout while doing local updates or transmitting updates, or all workers are in validator's black list.")
+				print("No transactions have been received by this worker, probably due to workers and/or miners offline or timeout while doing local updates or transmitting updates, or all miners are in worker's black list.")
 
 
 		print(''' Step 4.5 - with the broadcasted miners candidate models, workers decide the final arrival order\n ''')
@@ -657,9 +657,9 @@ if __name__=="__main__":
 						candidate_validation_time, post_validation_candidate = worker.validate_miner_candidate(unconfirmmed_candidate,  rewards, log_files_folder_path, comm_round, args['validate_threshold'], args['malicious_miner_on'])  #TODO 
 						if candidate_validation_time:
 							worker.add_post_validation_candidate_to_queue((arrival_time + candidate_validation_time, worker.return_link_speed(), post_validation_candidate))
-							print(f"A validation process has been done for the transaction from miner {post_validation_unconfirmmed_transaction['worker_device_idx']} by validator {worker.return_idx()}")			
+							print(f"A validation process has been done for the transaction from miner {post_validation_unconfirmmed_transaction['miner_id']} by worker {worker.return_idx()}")			
 					else:
-						print(f"A candidate validation process is skipped from miner {post_validation_unconfirmmed_transaction['miner_device_idx']} by vworker {worker.return_idx()} due to worker offline.")
+						print(f"A candidate validation process is skipped from miner {post_validation_unconfirmmed_transaction['miner_id']} by worker {worker.return_idx()} due to worker offline.")
 			else:
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} did not receive any candidate from worker or miner in this round.")
         
