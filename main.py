@@ -361,9 +361,10 @@ if __name__=="__main__":
 			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} will associate with a miner, if online...")
 			# worker associates with a miner to accept finally mined block #worker设备尝试与一个矿工设备建立关联，以便在本地更新完成后，能够将更新发送给矿工
 			if worker.online_switcher():
-				associated_miner = worker.associate_with_device("miner")
-				if associated_miner:
-					associated_miner.add_device_to_association(worker)
+				associated_miners = worker.associate_with_miner()
+				if associated_miners:
+					for associated_miner in associated_miners:
+						associated_miner.add_device_to_association(worker)
 				else:
 					print(f"Cannot find a qualified miner in {worker.return_idx()} peer list.")
 
@@ -554,7 +555,7 @@ if __name__=="__main__":
 					miner = associated_workers[miner_iter]
 					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
 					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
-					miner.set_local_updates_used_info_by_miner()
+					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
 					if not miner.return_idx() in worker.return_black_list():
 						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')
 						# time_tracker = 0
@@ -584,7 +585,7 @@ if __name__=="__main__":
 					miner = associated_workers[miner_iter]
 					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
 					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
-					miner.set_local_updates_used_info_by_miner()
+					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
 					if not miner.return_idx() in worker.return_black_list():
 						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')	 
 						if miner.online_switcher():
