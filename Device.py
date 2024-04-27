@@ -585,7 +585,6 @@ class Device:
     def add_to_round_end_time(self, time_to_add):
         self.round_end_time += time_to_add
     
-
     def other_tasks_at_the_end_of_comm_round(self, this_comm_round, log_files_folder_path):
         self.kick_out_slow_or_lazy_workers(this_comm_round, log_files_folder_path)
 
@@ -792,7 +791,7 @@ class Device:
             print(f"worker {self.idx} has computation power 0 and will not be able to validate this candidate in time")
             return False, False
         else:
-            miner_candidate_device_idx = candidate_to_validate["miner_id"]
+            miner_candidate_device_idx = candidate_to_validate["miner_idx"]
             if miner_candidate_device_idx in self.black_list:
                 print(f"{miner_candidate_device_idx} is in worker's blacklist. Candidate won't get validated.")
                 return False, False
@@ -815,7 +814,7 @@ class Device:
                     # will also add sig not verified candidate due to the worker's verification effort and its rewards needs to be recorded in the block
                     candidate_to_validate['miner_signature_valid'] = False
             else:
-                print(f"Signature of candidate from miner {miner_candidate_device_idx} is verified by validator {self.idx}!")
+                print(f"Signature of candidate from miner {miner_candidate_device_idx} is verified by worker {self.idx}!")
                 candidate_to_validate['miner_signature_valid'] = True
             # 2 - validate worker's local_updates_params if worker's signature is valid
             if candidate_to_validate['miner_signature_valid']:
