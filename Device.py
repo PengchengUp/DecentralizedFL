@@ -669,7 +669,9 @@ class Device:
                     miners_in_peer_list.add(peer)
         if not miners_in_peer_list:
             return False
-        self.worker_associated_miner_set = random.sample(miners_in_peer_list, 2)
+        random.seed(42)
+        associate_miner_number = random.randint(1, len(miners_in_peer_list))
+        self.worker_associated_miner_set = random.sample(miners_in_peer_list, associate_miner_number)
         return self.worker_associated_miner_set
 
     def return_worker_acception_wait_time(self):

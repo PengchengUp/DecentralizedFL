@@ -47,7 +47,7 @@ NETWORK_SNAPSHOTS_BASE_FOLDER = "snapshots"
 # log_files_folder_path = f"/content/drive/MyDrive/BFA/logs/{date_time}"
 # NETWORK_SNAPSHOTS_BASE_FOLDER = "/content/drive/MyDrive/BFA/snapshots"
 
-parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="Blockchain_FedAvg_Simulation")
+parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="Blockchain_FL_Simulation")
 
 # debug attributes
 parser.add_argument('-g', '--gpu', type=str, default='0', help='gpu id to use(e.g. 0,1,2,3)')
@@ -55,8 +55,8 @@ parser.add_argument('-v', '--verbose', type=int, default=1, help='print verbose 
 parser.add_argument('-sn', '--save_network_snapshots', type=int, default=0, help='only save network_snapshots if this is set to 1; will create a folder with date in the snapshots folder')
 parser.add_argument('-dtx', '--destroy_tx_in_block', type=int, default=0, help='currently transactions stored in the blocks are occupying GPU ram and have not figured out a way to move them to CPU ram or harddisk, so turn it on to save GPU ram in order for PoS to run 100+ rounds. NOT GOOD if there needs to perform chain resyncing.')
 parser.add_argument('-rp', '--resume_path', type=str, default=None, help='resume from the path of saved network_snapshots; only provide the date')
-parser.add_argument('-sf', '--save_freq', type=int, default=5, help='save frequency of the network_snapshot')
-parser.add_argument('-sm', '--save_most_recent', type=int, default=2, help='in case of saving space, keep only the recent specified number of snapshops; 0 means keep all')
+parser.add_argument('-sf', '--save_freq', type=int, default=10, help='save frequency of the network_snapshot')
+parser.add_argument('-sm', '--save_most_recent', type=int, default=1, help='in case of saving space, keep only the recent specified number of snapshops; 0 means keep all')
 
 # FL attributes
 parser.add_argument('-data', '--dataset', type=str, default='mnist')
@@ -396,7 +396,7 @@ if __name__=="__main__":
 			if args['miner_acception_wait_time']:
 				print(f"miner wati time is specified as {args['miner_acception_wait_time']} seconds. let each worker do local_updates till time limit")
 				for worker_iter in range(len(associated_workers)):
-					worker = associated_workers[worker_iter]    
+					worker = associated_workers[worker_iter]
 					if not worker.return_idx() in miner.return_blacfk_list():
 						print(f'worker {worker_iter+1}/{len(associated_workers)} of miner {miner.return_idx()} is doing local updates')	 
 						total_time_tracker = 0
@@ -752,7 +752,7 @@ if __name__=="__main__":
 								'worker_rsa_pub_key': unconfirmmed_candidate_transaction['worker_rsa_pub_key'],
 								'worker_signature': unconfirmmed_candidate_transaction['worker_signature'],
 								'candidate_direction': unconfirmmed_candidate_transaction['candidate_direction'],
-								"candidate_model_accuracy": unconfirmmed_candidate_transaction['candidate_validation_accuracy'],
+								'candidate_model_accuracy': unconfirmmed_candidate_transaction['candidate_validation_accuracy'],
 								'miner_device_idx': miner.return_idx(),
 								'miner_verification_time': verification_time,
 								'miner_verification_rewards_for_this_tx': rewards
