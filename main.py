@@ -236,6 +236,7 @@ if __name__=="__main__":
 		for device in devices_list:
 			# set initial global weights
 			device.init_global_parameters()
+			device.init_candidate_parameters()
 			# helper function for registration simulation - set devices_list and aio
 			device.set_devices_dict_and_aio(devices_in_network.devices_set, args["all_in_one"])
 			# simulate peer registration, with respect to device idx order
@@ -552,7 +553,7 @@ if __name__=="__main__":
 			if args['worker_acception_wait_time']:
 				print(f"worker wati time is specified as {args['worker_acception_wait_time']} seconds. let each miner aggregate_candidate_model till time limit")
 				for miner_iter in range(len(associated_miners)):
-					miner = associated_workers[miner_iter]
+					miner = associated_miners[miner_iter]
 					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
 					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
 					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
@@ -582,7 +583,7 @@ if __name__=="__main__":
 			else:
 				# did not specify wait time. every associated miners aggregate the candidate model
 				for miner_iter in range(len(associated_miners)):
-					miner = associated_workers[miner_iter]
+					miner = associated_miners[miner_iter]
 					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
 					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
 					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
@@ -654,13 +655,13 @@ if __name__=="__main__":
 			if final_candidate_arrival_queue:
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} is validating received miner candidate models...")
 				for (arrival_time, unconfirmmed_candidate) in final_candidate_arrival_queue:
-					if worker.online_switch():
-						candidate_validation_time, post_validation_candidate = worker.validate_miner_candidate(unconfirmmed_candidate,  rewards, log_files_folder_path, comm_round, args['validate_threshold'], args['malicious_miner_on'])  #TODO 
+					if worker.online_switcher():
+						candidate_validation_time, post_validation_candidate = worker.validate_miner_candidate(unconfirmmed_candidate, rewards, log_files_folder_path, comm_round, args['validate_threshold'], args['malicious_miner_on'])  #TODO 
 						if candidate_validation_time:
 							worker.add_post_validation_candidate_to_queue((arrival_time + candidate_validation_time, worker.return_link_speed(), post_validation_candidate))
-							print(f"A validation process has been done for the transaction from miner {post_validation_unconfirmmed_transaction['miner_id']} by worker {worker.return_idx()}")			
+							print(f"A validation process has been done for the transaction from miner {post_validation_candidate['miner_idx']} by worker {worker.return_idx()}")			
 					else:
-						print(f"A candidate validation process is skipped from miner {post_validation_unconfirmmed_transaction['miner_id']} by worker {worker.return_idx()} due to worker offline.")
+						print(f"A candidate validation process is skipped from miner {post_validation_candidate['miner_idx']} by worker {worker.return_idx()} due to worker offline.")
 			else:
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} did not receive any candidate from worker or miner in this round.")
         
@@ -705,9 +706,9 @@ if __name__=="__main__":
 			if accepted_broadcasted_worker_candidate_transactions:
 				# calculate broadcasted transactions arrival time
 				for broadcasting_miner_record in accepted_broadcasted_worker_candidate_transactions:
-					broadcasting_miner_link_speed = broadcasting_miner_record['source_device_link_speed']
+					broadcasting_miner_link_speed = broadcasting_miner_record['source_miner_link_speed']
 					lower_link_speed = self_miner_link_speed if self_miner_link_speed < broadcasting_miner_link_speed else broadcasting_miner_link_speed
-					for arrival_time_at_broadcasting_miner, broadcasted_candidate_transaction in broadcasting_miner_record['broadcasted_camdidate_transactions'].items():
+					for arrival_time_at_broadcasting_miner, broadcasted_candidate_transaction in broadcasting_miner_record['broadcasted_candidate_transactions'].items():
 						transmission_delay = getsizeof(str(broadcasted_candidate_transaction))/lower_link_speed
 						accepted_broadcasted_candidate_transactions_arrival_queue[transmission_delay + arrival_time_at_broadcasting_miner] = broadcasted_candidate_transaction
 			else:
@@ -745,13 +746,13 @@ if __name__=="__main__":
 						if verification_time:
 							if is_worker_sig_valid:
 								this_candidate_tx_info = {
-								'validation_done_by_worker': unconfirmmed_transaction['validation_done_by'],
-								'validation_reward_for_worker': unconfirmmed_transaction['validation_rewards'],
-								'validation_time_by_worker': unconfirmmed_transaction['validation_time'],
-								'worker_rsa_pub_key': unconfirmmed_transaction['worker_rsa_pub_key'],
-								'worker_signature': unconfirmmed_transaction['worker_signature'],
-								'candidate_direction': unconfirmmed_transaction['candidate_direction'],
-								"candidate_model_accuracy": unconfirmmed_transaction['candidate_validation_accuracy'],
+								'validation_done_by_worker': unconfirmmed_candidate_transaction['validation_done_by'],
+								'validation_reward_for_worker': unconfirmmed_candidate_transaction['validation_rewards'],
+								'validation_time_by_worker': unconfirmmed_candidate_transaction['validation_time'],
+								'worker_rsa_pub_key': unconfirmmed_candidate_transaction['worker_rsa_pub_key'],
+								'worker_signature': unconfirmmed_candidate_transaction['worker_signature'],
+								'candidate_direction': unconfirmmed_candidate_transaction['candidate_direction'],
+								"candidate_model_accuracy": unconfirmmed_candidate_transaction['candidate_validation_accuracy'],
 								'miner_device_idx': miner.return_idx(),
 								'miner_verification_time': verification_time,
 								'miner_verification_rewards_for_this_tx': rewards
