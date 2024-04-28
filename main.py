@@ -678,7 +678,7 @@ if __name__=="__main__":
 				print(f"No workers are associated with miner {miner.return_idx()} for this communication round.")
 				continue
 			self_miner_link_speed = miner.return_link_speed()
-			worker_candidate_transactions_arrival_queue = {}
+			worker_validated_candidate_transactions_arrival_queue = {}
 			for worker_iter in range(len(associated_workers)):
 				worker = associated_workers[worker_iter]
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(associated_workers)} of miner {miner.return_idx()} is sending signature verified transaction...")
@@ -688,24 +688,24 @@ if __name__=="__main__":
 					if worker.online_switcher() and miner.online_switcher():
 						lower_link_speed = self_miner_link_speed if self_miner_link_speed < source_worker_link_spped else source_worker_link_spped
 						transmission_delay = getsizeof(str(post_validation_unconfirmmed_candidate_transaction))/lower_link_speed
-						worker_candidate_transactions_arrival_queue[worker_sending_time + transmission_delay] = post_validation_unconfirmmed_candidate_transaction
+						worker_validated_candidate_transactions_arrival_queue[worker_sending_time + transmission_delay] = post_validation_unconfirmmed_candidate_transaction
 						print(f"miner {miner.return_idx()} has accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_queue_by_worker)} post-validation candidate transaction from worker {worker.return_idx()}")
 					else:
 						print(f"miner {miner.return_idx()} has not accepted {post_validation_unconfirmmed_candidate_transaction_iter}/{len(post_validation_candidates_queue_by_worker)} post-validation candidate transaction from worker {worker.return_idx()} due to one of devices or both offline.")
 					post_validation_unconfirmmed_candidate_transaction_iter += 1
-			miner.set_unordered_arrival_time_accepted_worker_candidate_transactions(worker_candidate_transactions_arrival_queue)
-			miner.miner_broadcast_worker_candidate_transactions()
+			miner.set_unordered_arrival_time_accepted_worker_validated_candidate_transactions(worker_validated_candidate_transactions_arrival_queue)
+			miner.miner_broadcast_worker_validated_candidate_transactions()
 			
 		print(''' Step 6.5 - with the broadcasted worker candidate transactions, miners decide the final candidate transaction arrival order\n ''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
-			accepted_broadcasted_worker_candidate_transactions = miner.return_accepted_broadcasted_worker_candidate_transactions()
+			accepted_broadcasted_worker_validated_candidate_transactions = miner.return_accepted_miner_broadcasted_worker_validated_candidate_transactions()
 			self_miner_link_speed = miner.return_link_speed()
 			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} calculating the final transactions arrival order by combining the direct worker candidate transactions received and received broadcasted candidatetransactions...")
 			accepted_broadcasted_candidate_transactions_arrival_queue = {}
-			if accepted_broadcasted_worker_candidate_transactions:
+			if accepted_broadcasted_worker_validated_candidate_transactions:
 				# calculate broadcasted transactions arrival time
-				for broadcasting_miner_record in accepted_broadcasted_worker_candidate_transactions:
+				for broadcasting_miner_record in accepted_broadcasted_worker_validated_candidate_transactions:
 					broadcasting_miner_link_speed = broadcasting_miner_record['source_miner_link_speed']
 					lower_link_speed = self_miner_link_speed if self_miner_link_speed < broadcasting_miner_link_speed else broadcasting_miner_link_speed
 					for arrival_time_at_broadcasting_miner, broadcasted_candidate_transaction in broadcasting_miner_record['broadcasted_candidate_transactions'].items():
@@ -714,7 +714,7 @@ if __name__=="__main__":
 			else:
 				print(f"miner {miner.return_idx()} {miner_iter+1}/{len(miners_this_round)} did not receive any broadcasted worker candidate transaction this round.")
 			# mix the boardcasted transactions with the direct accepted transactions
-			final_candidate_transactions_arrival_queue = sorted({**miner.return_unordered_arrival_time_accepted_worker_candidate_transactions(), **accepted_broadcasted_candidate_transactions_arrival_queue}.items())
+			final_candidate_transactions_arrival_queue = sorted({**miner.return_unordered_arrival_time_accepted_worker_validated_candidate_transactions(), **accepted_broadcasted_candidate_transactions_arrival_queue}.items())
 			miner.set_candidate_transactions_for_final_mining_queue(final_candidate_transactions_arrival_queue)
 			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} done calculating the ordered final candidatetransactions arrival order. Total {len(final_candidate_transactions_arrival_queue)} accepted candidatetransactions.")
 

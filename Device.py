@@ -108,10 +108,10 @@ class Device:
         ''' For miners '''
         self.miner_associated_worker_set = set()
         self.miner_accepted_broadcasted_worker_transactions = None or []
-        self.worker_accepted_broadcasted_miner_candidate_transactions = None or []
+        self.accepted_miner_broadcasted_worker_validated_candidate_transactions = None or []
         self.final_transactions_queue_to_validate = {}
         self.unordered_arrival_time_accepted_worker_transactions = {}
-        self.unordered_arrival_time_accepted_worker_candidate_transactions = {}
+        self.unordered_arrival_time_accepted_worker_validated_candidate_transactions = {}
         # dict cannot be added to set()
         self.aggregate_time = None
         self.aggregate_rewards = 0
@@ -772,9 +772,11 @@ class Device:
 
     def accept_worker_broadcasted_miner_candidate(self, source_worker, unordered_transaction_arrival_queue_from_source_worker):
         if not source_worker.return_idx() in self.black_list:
-            for _, tx in unordered_transaction_arrival_queue_from_source_worker.items():
+            unordered_transaction_arrival_queue_from_source_worker_to_added = {}
+            for arrival_time, tx in unordered_transaction_arrival_queue_from_source_worker.items():
                 if not self.check_if_has_same_candidate_transaction(tx, self.unordered_arrival_time_accepted_miner_candidate, self.worker_accepted_broadcasted_miner_candidate):
-                    self.worker_accepted_broadcasted_miner_candidate.append({'source_worker_link_speed': source_worker.return_link_speed(),'broadcasted_candidate': copy.deepcopy(unordered_transaction_arrival_queue_from_source_worker)})
+                    unordered_transaction_arrival_queue_from_source_worker_to_added[arrival_time] = tx
+            self.worker_accepted_broadcasted_miner_candidate.append({'source_worker_link_speed': source_worker.return_link_speed(),'broadcasted_candidate': copy.deepcopy(unordered_transaction_arrival_queue_from_source_worker_to_added)})
             print(f"worker {self.idx} has accepted miner candidate from worker {source_worker.return_idx()}")
         else:
             print(f"Source worker {source_worker.return_idx()} is in worker {self.idx}'s black list. Broadcasted candidate not accepted.")
@@ -983,11 +985,11 @@ class Device:
     def return_unordered_arrival_time_accepted_worker_transactions(self):
         return self.unordered_arrival_time_accepted_worker_transactions
 
-    def set_unordered_arrival_time_accepted_worker_candidate_transactions(self, unordered_candidate_transaction_arrival_queue):
-        self.unordered_arrival_time_accepted_worker_candidate_transactions = unordered_candidate_transaction_arrival_queue
+    def set_unordered_arrival_time_accepted_worker_validated_candidate_transactions(self, unordered_candidate_transaction_arrival_queue):
+        self.unordered_arrival_time_accepted_worker_validated_candidate_transactions = unordered_candidate_transaction_arrival_queue
         
-    def return_unordered_arrival_time_accepted_worker_candidate_transactions(self):
-        return self.unordered_arrival_time_accepted_worker_candidate_transactions
+    def return_unordered_arrival_time_accepted_worker_validated_candidate_transactions(self):
+        return self.unordered_arrival_time_accepted_worker_validated_candidate_transactions
     
     def set_transaction_for_final_validating_queue(self, final_transactions_arrival_queue):
         self.final_transactions_queue_to_validate = final_transactions_arrival_queue
@@ -1013,10 +1015,12 @@ class Device:
                         print(f"Destination miner {peer.return_idx()} is in this miner {self.idx}'s black_list. broadcasting skipped for this dest miner.")
 
     def accept_miner_broadcasted_worker_transactions(self, source_miner, unordered_transaction_arrival_queue_from_source_miner):
+        unordered_transaction_arrival_queue_from_source_miner_to_added = {}
         if not source_miner.return_idx() in self.black_list:
-            for _, tx in unordered_transaction_arrival_queue_from_source_miner.items():
+            for arrival_time, tx in unordered_transaction_arrival_queue_from_source_miner.items():
                 if not self.check_if_has_same_transaction(tx, self.unordered_arrival_time_accepted_worker_transactions, self.miner_accepted_broadcasted_worker_transactions):
-                    self.miner_accepted_broadcasted_worker_transactions.append({'source_miner_link_speed': source_miner.return_link_speed(),'broadcasted_transactions': copy.deepcopy(unordered_transaction_arrival_queue_from_source_miner)})
+                    unordered_transaction_arrival_queue_from_source_miner_to_added[arrival_time] = tx
+            self.miner_accepted_broadcasted_worker_transactions.append({'source_miner_link_speed': source_miner.return_link_speed(),'broadcasted_transactions': copy.deepcopy(unordered_transaction_arrival_queue_from_source_miner_to_added)})
             print(f"miner {self.idx} has accepted worker transactions from miner {source_miner.return_idx()}")
         else:
             print(f"Source miner {source_miner.return_idx()} is in miner {self.idx}'s black list. Broadcasted transactions not accepted.")
@@ -1035,28 +1039,26 @@ class Device:
                     break
         return if_in_transactions_received_from_associated_workers or if_in_accepted_broadcasted_worker_transactions
     
-    def miner_broadcast_worker_candidate_transactions(self):
+    def miner_broadcast_worker_validated_candidate_transactions(self):
         for peer in self.peer_list:
             if peer.is_online():
                 if peer.return_role() == "miner":
                     if not peer.return_idx() in self.black_list:
                         print(f"miner {self.idx} is broadcasting received miner transactions to miner {peer.return_idx()}.")
-                        final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner = copy.copy(self.unordered_arrival_time_accepted_worker_candidate_transactions)
+                        final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner = copy.copy(self.unordered_arrival_time_accepted_worker_validated_candidate_transactions)
                         # if offline, it's like the broadcasted transaction was not received, so skip a transaction
-                        for arrival_time, tx in self.unordered_arrival_time_accepted_worker_candidate_transactions.items():
+                        for arrival_time, tx in self.unordered_arrival_time_accepted_worker_validated_candidate_transactions.items():
                             if not (self.online_switcher() and peer.online_switcher()):
-                                del final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner[arrival_time]
+                                del final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner[arrival_time]
                         # in the real distributed system, it should be broadcasting transaction one by one. Here we send the all received transactions(while online) and later calculate the order for the individual broadcasting transaction's arrival time mixed with the transactions itself received
-                        peer.accept_miner_broadcasted_worker_candidate_transactions(self, final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner)
-                        print(f"miner {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_worker_candidate_transactions_for_dest_miner)} worker transactions to miner {peer.return_idx()}.")
+                        peer.accept_miner_broadcasted_worker_validated_candidate_transactions(self, final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner)
+                        print(f"miner {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner)} worker transactions to miner {peer.return_idx()}.")
                     else:
                         print(f"Destination miner {peer.return_idx()} is in this miner {self.idx}'s black_list. broadcasting skipped for this dest miner.")
 
-    def accept_worker_broadcasted_miner_candidate_transactions(self, source_worker, unordered_candidate_transaction_arrival_queue_from_source_worker):
+    def accept_miner_broadcasted_worker_validated_candidate_transactions(self, source_worker, unordered_candidate_transaction_arrival_queue_from_source_miner):
         if not source_worker.return_idx() in self.black_list:
-            for _, tx in unordered_candidate_transaction_arrival_queue_from_source_worker.items():
-                if not self.check_if_has_same_candidate_transaction(tx, self.unordered_arrival_time_accepted_miner_candidate):
-                    self.worker_accepted_broadcasted_miner_candidate_transactions.append({'source_miner_link_speed': source_worker.return_link_speed(),'broadcasted_candidate_transactions': copy.deepcopy(unordered_candidate_transaction_arrival_queue_from_source_worker)})
+            self.accepted_miner_broadcasted_worker_validated_candidate_transactions.append({'source_miner_link_speed': source_worker.return_link_speed(),'broadcasted_validated_candidate_transactions': copy.deepcopy(unordered_candidate_transaction_arrival_queue_from_source_miner)})
             print(f"worker {self.idx} has accepted miner candidate transactions from worker {source_worker.return_idx()}")
         else:
             print(f"Source worker {source_worker.return_idx()} is in worker {self.idx}'s black list. Broadcasted transactions not accepted.")
@@ -1064,8 +1066,8 @@ class Device:
     def return_accepted_broadcasted_worker_transactions(self):
         return self.miner_accepted_broadcasted_worker_transactions
 
-    def return_accepted_broadcasted_miner_candidate_transactions(self):
-        return self.worker_accepted_broadcasted_miner_candidate_transactions
+    def return_accepted_miner_broadcasted_worker_validated_candidate_transactions(self):
+        return self.accepted_miner_broadcasted_worker_validated_candidate_transactions
 
     def miner_update_model_by_one_epoch_and_validate_local_accuracy(self, opti):
         # return time spent
@@ -1456,10 +1458,10 @@ class Device:
         self.unconfirmmed_transactions.clear()
         self.broadcasted_transactions.clear()
         self.unordered_arrival_time_accepted_worker_transactions.clear()
-        self.unordered_arrival_time_accepted_worker_candidate_transactions.clear()
+        self.unordered_arrival_time_accepted_worker_validated_candidate_transactions.clear()
         # self.unconfirmmed_validator_transactions.clear()
         self.miner_accepted_broadcasted_worker_transactions.clear()
-        self.worker_accepted_broadcasted_miner_candidate_transactions.clear()
+        self.accepted_miner_broadcasted_worker_validated_candidate_transactions.clear()
         self.mined_block = None
         self.received_propagated_block = None
         self.received_propagated_validator_block = None
