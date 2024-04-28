@@ -287,7 +287,7 @@ if __name__=="__main__":
 		miners_to_assign = miners_needed
 		workers_this_round = []
 		miners_this_round = []
-		random.shuffle(devices_list) #每一轮开始都随机重新排列设备列表，然后再依次分配 role
+		random.shuffle(devices_list)
 		for device in devices_list:
 			if workers_to_assign:
 				device.assign_worker_role()
@@ -360,7 +360,7 @@ if __name__=="__main__":
 				worker.update_model_after_chain_resync(log_files_folder_path_comm_round, conn, conn_cursor)
 			# worker (should) perform local update and associate
 			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} will associate with a miner, if online...")
-			# worker associates with a miner to accept finally mined block #worker设备尝试与一个矿工设备建立关联，以便在本地更新完成后，能够将更新发送给矿工
+			# worker associates with a miner to accept finally mined block #worker设备尝试与矿工设备建立关联，以便在本地更新完成后，能够将更新发送给矿工
 			if worker.online_switcher():
 				associated_miners = worker.associate_with_miner()
 				if associated_miners:
@@ -407,7 +407,7 @@ if __name__=="__main__":
 							# simulate the situation that worker may go offline during model updates transmission to the miner, based on per transaction
 							if worker.online_switcher():
 								local_update_spent_time = worker.worker_local_update(rewards, log_files_folder_path_comm_round, comm_round) 
-								unverified_transaction = worker.return_local_updates_and_signature(comm_round)
+								unverified_transaction = worker.return_local_updates_and_signature(comm_round) #return local_updates_dict{'worker_device_idx': , 'in_round_number': , "local_updates_params": , "local_updates_rewards": , "local_iteration(s)_spent_time": , "local_total_accumulated_epochs_this_round": , "worker_rsa_pub_key": , "worker_signature":}
 								# size in bytes, usually around 35000 bytes per transaction
 								unverified_transactions_size = getsizeof(str(unverified_transaction))
 								transmission_delay = unverified_transactions_size/lower_link_speed 
@@ -620,13 +620,13 @@ if __name__=="__main__":
 		print(''' Step 4.5 - with the broadcasted miners candidate models, workers decide the final arrival order\n ''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
-			accepted_broadcasted_worker_candidate = worker.return_accepted_broadcasted_miner_candidate()
+			accepted_broadcasted_miner_candidate = worker.return_accepted_broadcasted_miner_candidate()
 			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} is calculating the final candidate arrival order by combining the direct miner candidate received and received broadcasted candidate...")
 			#Calculate the arrival time of broadcasted candidate by considering the transmission delay based on the link speed between the broadcasting worker and the current worker.
 			accepted_broadcasted_candidate_arrival_queue = {}
-			if accepted_broadcasted_worker_candidate:
+			if accepted_broadcasted_miner_candidate:
 				self_worker_link_speed = worker.return_link_speed()
-				for broadcasting_worker_record in accepted_broadcasted_worker_candidate:
+				for broadcasting_worker_record in accepted_broadcasted_miner_candidate:
 					broadcasting_worker_link_speed = broadcasting_worker_record['source_worker_link_speed']
 					lower_link_speed = self_worker_link_speed if self_worker_link_speed < broadcasting_worker_link_speed else broadcasting_worker_link_speed
 					for arrival_time_at_broadcasting_worker, broadcasted_transaction in broadcasting_worker_record['broadcasted_candidate'].items():
