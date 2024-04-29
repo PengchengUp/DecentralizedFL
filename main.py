@@ -708,7 +708,7 @@ if __name__=="__main__":
 				for broadcasting_miner_record in accepted_broadcasted_worker_validated_candidate_transactions:
 					broadcasting_miner_link_speed = broadcasting_miner_record['source_miner_link_speed']
 					lower_link_speed = self_miner_link_speed if self_miner_link_speed < broadcasting_miner_link_speed else broadcasting_miner_link_speed
-					for arrival_time_at_broadcasting_miner, broadcasted_candidate_transaction in broadcasting_miner_record['broadcasted_candidate_transactions'].items():
+					for arrival_time_at_broadcasting_miner, broadcasted_candidate_transaction in broadcasting_miner_record['broadcasted_validated_candidate_transactions'].items():
 						transmission_delay = getsizeof(str(broadcasted_candidate_transaction))/lower_link_speed
 						accepted_broadcasted_candidate_transactions_arrival_queue[transmission_delay + arrival_time_at_broadcasting_miner] = broadcasted_candidate_transaction
 			else:

@@ -1028,7 +1028,7 @@ class Device:
     def check_if_has_same_transaction(self, transaction_received_from_miner, transactions_received_from_associated_workers, accepted_broadcasted_worker_transactions):
         if_in_transactions_received_from_associated_workers = False
         if_in_accepted_broadcasted_worker_transactions = False
-        for   _, transaction in transactions_received_from_associated_workers.tems():
+        for   _, transaction in transactions_received_from_associated_workers.items():
             if transaction['worker_device_idx'] == transaction_received_from_miner['worker_device_idx']:
                 if_in_transactions_received_from_associated_workers = True
                 break
