@@ -81,7 +81,7 @@ parser.add_argument('-cons', '--consensus', type=str, default='PoW', help="inclu
 
 
 # blockchain FL miner restriction tuning parameters
-parser.add_argument('-mt', '--miner_acception_wait_time', type=float, default=0.0, help="default time window for miners to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
+parser.add_argument('-mt', '--miner_acception_wait_time', type=float, default=float("inf"), help="default time window for miners to accept transactions, in seconds.")
 parser.add_argument('-wt', '--worker_acception_wait_time', type=float, default=0.0, help="default time window for workers to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-ml', '--miner_accepted_transactions_size_limit', type=float, default=0.0, help="no further transactions will be accepted by miner after this limit. 0 means no size limit. either this or -mt has to be specified, or both. This param determines the final block_size")
 parser.add_argument('-mp', '--miner_poe_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoE")
@@ -284,7 +284,7 @@ if __name__=="__main__":
 		comm_round_start_time = time.time()
 		# (RE)ASSIGN ROLES 分配角色
 		workers_to_assign = workers_needed
-		miners_to_assign = miners_needed
+		miners_to_assign = miners_needed #TODO 优化目标：worker和miner的比例
 		workers_this_round = []
 		miners_this_round = []
 		random.shuffle(devices_list)
@@ -352,15 +352,15 @@ if __name__=="__main__":
 		
 		''' workers and miners take turns to perform jobs '''
 
-		print(''' Step 1 - workers assign associated miner (and do local updates, but it is implemented in code block of step 2) \n''')
+		print(''' Step 0 - workers assign associated miners.\n''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
-			# resync chain(block could be dropped due to fork from last round) #如果上一轮发生了分叉（fork），worker设备需要重同步其区块链，以确保其区块链是最新的
+			# resync chain(block could be dropped due to fork from last round)
 			if worker.resync_chain(mining_consensus):
 				worker.update_model_after_chain_resync(log_files_folder_path_comm_round, conn, conn_cursor)
 			# worker (should) perform local update and associate
-			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} will associate with a miner, if online...")
-			# worker associates with a miner to accept finally mined block #worker设备尝试与矿工设备建立关联，以便在本地更新完成后，能够将更新发送给矿工
+			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} will associate with miners, if online...")
+			# worker associates with a miner to accept finally mined block
 			if worker.online_switcher():
 				associated_miners = worker.associate_with_miner()
 				if associated_miners:
@@ -369,107 +369,48 @@ if __name__=="__main__":
 				else:
 					print(f"Cannot find a qualified miner in {worker.return_idx()} peer list.")
 
-		
-		print(''' Step 2 - miners accept local updates and broadcast to other miners in their respective peer lists (workers local_updates() are called in this step.\n''')
+		print(''' Step 1 - workers do local updates.\n''')
+		for worker_iter in range(len(workers_this_round)):
+			worker = workers_this_round[worker_iter]
+			if worker.online_switcher():
+				print(f'worker {worker_iter+1}/{len(workers_this_round)} is online and will do local updates...')
+				worker.worker_local_update(rewards, log_files_folder_path_comm_round, comm_round, local_epochs=args['default_local_epochs'])#get worker.local_update_time, worker.local_train_parameters, worker.local_updates_rewards_per_transaction
+				worker.return_local_updates_and_signature(comm_round) #get worker.local_updates_dict, i.e., local update transaction 
+			else:
+				print(f"worker {worker.return_idx()} offline and unable do local updates")
+
+		print(''' Step 2 - miners accept local updates and broadcast to other miners in their respective peer lists.\n''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
-			# resync chain  #检查是否需要重同步其区块链，这通常发生在上一轮发生了分叉。如果需要，则会更新其模型
+			# resync chain
 			if miner.resync_chain(mining_consensus):
 				miner.update_model_after_chain_resync(log_files_folder_path, conn, conn_cursor)
-			# miner accepts local updates from its workers association 
-			#验证者从其关联的工人那里接受本地更新。这个过程涉及到计算每个工人更新的传输延迟，并根据这些延迟来确定更新的到达时间。这些信息被记录在一个字典 records_dict 中，用于后续的排序和广播。
+			# miner accepts local updates from its associated workers 
 			associated_workers = list(miner.return_associated_workers())
 			if not associated_workers:
 				print(f"No workers are associated with miner {miner.return_idx()} {miner_iter+1}/{len(miners_this_round)} for this communication round.")
 				continue
 			miner_link_speed = miner.return_link_speed()
-			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is accepting workers' updates with link speed {miner_link_speed} bytes/s, if online...")
-			# records_dict used to record transmission delay for each epoch to determine the next epoch updates arrival time 
-			#这个过程涉及到计算每个工人更新的传输延迟，并根据这些延迟来确定更新的到达时间。这些信息被记录在一个字典 records_dict 中，用于后续的排序和广播。
-			records_dict = dict.fromkeys(associated_workers, None)
-			for worker, _ in records_dict.items():
-				records_dict[worker] = {}
-			# used for arrival time easy sorting for later miner broadcasting (and miners' acception order)
-			transaction_arrival_queue = {}
-			# workers local_updates() called here as their updates transmission may be restrained by miners' acception time and/or size 
-			#worker local_updates() 在此调用，因为他们的更新传输可能受到矿工接受时间和/或大小的限制
-			if args['miner_acception_wait_time']:
-				print(f"miner wati time is specified as {args['miner_acception_wait_time']} seconds. let each worker do local_updates till time limit")
-				for worker_iter in range(len(associated_workers)):
-					worker = associated_workers[worker_iter]
-					if not worker.return_idx() in miner.return_blacfk_list():
-						print(f'worker {worker_iter+1}/{len(associated_workers)} of miner {miner.return_idx()} is doing local updates')	 
-						total_time_tracker = 0
-						update_iter = 1
-						worker_link_speed = worker.return_link_speed() 
+			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is accepting workers' updates with link speed {miner_link_speed} bytes/s, and miner wati time is specified as {args['miner_acception_wait_time']} seconds.")			
+			transaction_arrival_queue = {}# used for arrival time easy sorting for later miner broadcasting (and miners' acception order)
+			for worker_iter in range(len(associated_workers)):
+				worker = associated_workers[worker_iter]
+				if not worker.return_idx() in miner.return_black_list():
+					if worker.online_switcher():
+						worker_link_speed = worker.return_link_speed()
 						lower_link_speed = miner_link_speed if miner_link_speed < worker_link_speed else worker_link_speed
-						while total_time_tracker < miner.return_miner_acception_wait_time():
-							# simulate the situation that worker may go offline during model updates transmission to the miner, based on per transaction
-							if worker.online_switcher():
-								local_update_spent_time = worker.worker_local_update(rewards, log_files_folder_path_comm_round, comm_round) 
-								unverified_transaction = worker.return_local_updates_and_signature(comm_round) #return local_updates_dict{'worker_device_idx': , 'in_round_number': , "local_updates_params": , "local_updates_rewards": , "local_iteration(s)_spent_time": , "local_total_accumulated_epochs_this_round": , "worker_rsa_pub_key": , "worker_signature":}
-								# size in bytes, usually around 35000 bytes per transaction
-								unverified_transactions_size = getsizeof(str(unverified_transaction))
-								transmission_delay = unverified_transactions_size/lower_link_speed 
-								if local_update_spent_time + transmission_delay > miner.return_miner_acception_wait_time():
-									# last transaction sent passes the acception time window
-									break
-								records_dict[worker][update_iter] = {}
-								records_dict[worker][update_iter]['local_update_time'] = local_update_spent_time
-								records_dict[worker][update_iter]['transmission_delay'] = transmission_delay
-								records_dict[worker][update_iter]['local_update_unverified_transaction'] = unverified_transaction
-								records_dict[worker][update_iter]['local_update_unverified_transaction_size'] = unverified_transactions_size
-								if update_iter == 1:
-									total_time_tracker = local_update_spent_time + transmission_delay
-								else:
-									total_time_tracker = total_time_tracker - records_dict[worker][update_iter - 1]['transmission_delay'] + local_update_spent_time + transmission_delay
-								records_dict[worker][update_iter]['arrival_time'] = total_time_tracker
-								if miner.online_switcher():
-									# accept this transaction only if the miner is online
-									print(f"miner {miner.return_idx()} has accepted this transaction.")
-									transaction_arrival_queue[total_time_tracker] = unverified_transaction
-								else:
-									print(f"miner {miner.return_idx()} offline and unable to accept this transaction")
-							else:
-								# worker goes offline and skip updating for one transaction, wasted the time of one update and transmission
-								# Worker离线并跳过一笔交易的更新，浪费了一笔更新和传输的时间
-								wasted_update_time, wasted_update_params = worker.waste_one_epoch_local_update_time(args['optimizer'])
-								wasted_update_params_size = getsizeof(str(wasted_update_params))
-								wasted_transmission_delay = wasted_update_params_size/lower_link_speed
-								if wasted_update_time + wasted_transmission_delay > miner.return_miner_acception_wait_time():
-									# wasted transaction "arrival" passes the acception time window
-									break
-								records_dict[worker][update_iter] = {}
-								records_dict[worker][update_iter]['transmission_delay'] = transmission_delay
-								if update_iter == 1:
-									total_time_tracker = wasted_update_time + wasted_transmission_delay
-									print(f"worker goes offline and wasted {total_time_tracker} seconds for a transaction")
-								else:
-									total_time_tracker = total_time_tracker - records_dict[worker][update_iter - 1]['transmission_delay'] + wasted_update_time + wasted_transmission_delay
-							update_iter += 1
-			else:
-				 # did not specify wait time. every associated worker perform specified number of local epochs
-				# 不指定等待时间。 每个关联的worker执行指定数量的local epochs
-				for worker_iter in range(len(associated_workers)):
-					worker = associated_workers[worker_iter]
-					if not worker.return_idx() in miner.return_black_list():
-						print(f'worker {worker_iter+1}/{len(associated_workers)} of miner {miner.return_idx()} is doing local updates')	 
-						if worker.online_switcher():
-							local_update_spent_time = worker.worker_local_update(rewards, log_files_folder_path_comm_round, comm_round, local_epochs=args['default_local_epochs']) 
-							worker_link_speed = worker.return_link_speed()
-							lower_link_speed = miner_link_speed if miner_link_speed < worker_link_speed else worker_link_speed
-							unverified_transaction = worker.return_local_updates_and_signature(comm_round)
-							unverified_transactions_size = getsizeof(str(unverified_transaction))
-							transmission_delay = unverified_transactions_size/lower_link_speed
-							if miner.online_switcher():
-								transaction_arrival_queue[local_update_spent_time + transmission_delay] = unverified_transaction
-								print(f"miner {miner.return_idx()} has accepted this transaction.")
-							else:
-								print(f"miner {miner.return_idx()} offline and unable to accept this transaction")
+						transmission_delay = getsizeof(str(worker.local_updates_dict)) / lower_link_speed
+						local_update_transaction_arrival_time = worker.local_update_time + transmission_delay
+						if miner.online_switcher():
+							if args['miner_acception_wait_time'] >= local_update_transaction_arrival_time:
+								transaction_arrival_queue[local_update_transaction_arrival_time] = worker.local_updates_dict
+								print(f"miner {miner.return_idx()} has accepted local update transaction from worker {worker.return_idx()}.")
 						else:
-							print(f"worker {worker.return_idx()} offline and unable do local updates")
+							print(f"miner {miner.return_idx()} offline and unable to accept this transaction")
 					else:
-						print(f"worker {worker.return_idx()} in miner {miner.return_idx()}'s black list. This worker's transactions won't be accpeted.")
+						print(f"worker {worker.return_idx()} offline and unable do local updates")
+				else:
+					print(f"worker {worker.return_idx()} in miner {miner.return_idx()}'s black list. This worker's transactions won't be accpeted.")
 			miner.set_unordered_arrival_time_accepted_worker_transactions(transaction_arrival_queue)
 			# in case miner off line for accepting broadcasted transactions but can later back online to validate the transactions itself receives
 			miner.set_transaction_for_final_validating_queue(sorted(transaction_arrival_queue.items()))
@@ -484,10 +425,8 @@ if __name__=="__main__":
 		print(''' Step 2.5 - with the broadcasted workers transactions, miners decide the final transaction arrival order \n''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
-			accepted_broadcasted_miner_transactions = miner.return_accepted_broadcasted_worker_transactions()
-
-			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is calculating the final transactions arrival order by combining the direct worker transactions received and received broadcasted transactions...")
-			
+			accepted_broadcasted_miner_transactions = miner.return_accepted_broadcasted_worker_transactions() #[ {'source_miner_link_speed': ,'broadcasted_transactions': self.unordered_arrival_time_accepted_worker_transactions}]
+			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is calculating the final transactions arrival order by combining the direct received worker transactions and received broadcasted transactions...")			
 			#Calculate the arrival time of broadcasted transactions by considering the transmission delay based on the link speed between the broadcasting miner and the current miner.
 			accepted_broadcasted_transactions_arrival_queue = {}
 			if accepted_broadcasted_miner_transactions:
@@ -503,16 +442,9 @@ if __name__=="__main__":
 			
 			# mix the boardcasted transactions with the direct accepted transactions
 			final_transactions_arrival_queue = sorted({**miner.return_unordered_arrival_time_accepted_worker_transactions(), **accepted_broadcasted_transactions_arrival_queue}.items()) 
-			'''
-			#{**d1, **d2}This expression combines two dictionaries, ** operator is used to unpack both dictionaries and combine them into one dictionary
-			#items(): This method converts the combined dictionary into a sequence of (key, value) tuples.
-			#sorted(...): This function sorts the sequence of tuples based on the keys (arrival times). Since sorted returns a list of sorted tuples, the final result is a sorted list of (arrival_time, transaction) tuples.
-			'''
-
 			# Set the final transaction queue for the miner
 			miner.set_transaction_for_final_validating_queue(final_transactions_arrival_queue)
-			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} done calculating the ordered final transactions arrival order. Total {len(final_transactions_arrival_queue)} accepted transactions.")
-
+			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} done calculating the ordered final transactions arrival order. Total {len(final_transactions_arrival_queue)} accepted transactions need to be validated.")
 
 		print(''' Step 3 - miners do self and cross-validation(validate local updates from workers) by the order of transaction arrival time.\n''')
 		for miner_iter in range(len(miners_this_round)):
@@ -534,11 +466,23 @@ if __name__=="__main__":
 							print(f"A validation process has been done for the transaction from worker {post_validation_unconfirmmed_transaction['worker_device_idx']} by miner {miner.return_idx()}")
 					else:
 						print(f"A validation process is skipped for the transaction from worker {post_validation_unconfirmmed_transaction['worker_device_idx']} by miner {miner.return_idx()} due to miner offline.")
+				print(f"The validation process has been done for total {len(final_transactions_arrival_queue)} transactions by miner {miner.return_idx()}.")			
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
 
+		print(''' Step 4 - miners aggregate their candidate models using the validated local updates from workers.\n''')
+		for miner_iter in range(len(miners_this_round)):
+			miner = miners_this_round[miner_iter]
+			if miner.online_switcher():
+					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
+					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
+					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
+					miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round)
+					miner.return_candidate_model_and_signature(comm_round)
+			else:
+				print(f"miner {miner.return_idx()} {miner_iter+1}/{len(miners_this_round)} is offline and unable to aggregate the candidate model.")
 
-		print(''' Step 4 - workers accept candidate models and broadcast to other workers in their respective peer lists (miners aggregate_candidate_model() are called in this step.\n''')
+		print(''' Step 5 - workers accept candidate models and broadcast to other workers in their respective peer lists (miners aggregate_candidate_model() are called in this step.\n''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			associated_miners = list(worker.return_associated_miners())
@@ -617,7 +561,7 @@ if __name__=="__main__":
 				print("No transactions have been received by this worker, probably due to workers and/or miners offline or timeout while doing local updates or transmitting updates, or all miners are in worker's black list.")
 
 
-		print(''' Step 4.5 - with the broadcasted miners candidate models, workers decide the final arrival order\n ''')
+		print(''' Step 5.5 - with the broadcasted miners candidate models, workers decide the final arrival order\n ''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			accepted_broadcasted_miner_candidate = worker.return_accepted_broadcasted_miner_candidate()
@@ -648,7 +592,7 @@ if __name__=="__main__":
 			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} done calculating the ordered final candidate arrival order. Total {len(final_candidate_arrival_queue)} accepted candidate.")
 
 		
-		print(''' Step 5 - workers verify miners' signature and miners' candidate models by the order of transaction arrival time.\n''')
+		print(''' Step 6 - workers verify miners' signature and miners' candidate models by the order of transaction arrival time.\n''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			final_candidate_arrival_queue = worker.return_final_candidate_validating_queue()
@@ -666,7 +610,7 @@ if __name__=="__main__":
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} did not receive any candidate from worker or miner in this round.")
         
 
-		print(''' Step 6 - workers send post validation candidate transactions to associated miner and miner broadcasts these to other miners in their respecitve peer lists\n''')
+		print(''' Step 7 - workers send post validation candidate transactions to associated miner and miner broadcasts these to other miners in their respecitve peer lists\n''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
 			# resync chain
@@ -696,7 +640,7 @@ if __name__=="__main__":
 			miner.set_unordered_arrival_time_accepted_worker_validated_candidate_transactions(worker_validated_candidate_transactions_arrival_queue)
 			miner.miner_broadcast_worker_validated_candidate_transactions()
 			
-		print(''' Step 6.5 - with the broadcasted worker candidate transactions, miners decide the final candidate transaction arrival order\n ''')
+		print(''' Step 7.5 - with the broadcasted worker candidate transactions, miners decide the final candidate transaction arrival order\n ''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
 			accepted_broadcasted_worker_validated_candidate_transactions = miner.return_accepted_miner_broadcasted_worker_validated_candidate_transactions()
@@ -719,7 +663,7 @@ if __name__=="__main__":
 			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} done calculating the ordered final candidatetransactions arrival order. Total {len(final_candidate_transactions_arrival_queue)} accepted candidatetransactions.")
 
 
-		print(''' Step 7 - miners do self and cross-verification (verify signature) by the order of transaction arrival time and record the transactions in the candidate block according to the limit size. Also mine and propagate the block.\n''')
+		print(''' Step 8 - miners do self and cross-verification (verify signature) by the order of transaction arrival time and record the transactions in the candidate block according to the limit size. Also mine and propagate the block.\n''')
   		#确定最终的 candidate transactions in block: 合并相同的 candidate model
 		#miner统计投票结果确定 leader
 		for miner_iter in range(len(miners_this_round)):
@@ -838,7 +782,7 @@ if __name__=="__main__":
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
 
 		
-		print(''' Step 8 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block''')
+		print(''' Step 9 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block''')
 		forking_happened = False
 		# comm_round_block_gen_time regarded as the time point when the winning miner mines its block, 
 		#calculated from the beginning of the round. If there is forking in PoW or rewards info out of sync in PoS, 
@@ -899,7 +843,7 @@ if __name__=="__main__":
 		else:
 			print("No forking event happened.")
 		
-		print(''' Step 8.5 last step - process the added block - 1.collect usable candidate models\n 2.malicious nodes identification\n 3.get rewards\n 4.do local udpates\n This code block is skipped if no valid block was generated in this round''')
+		print(''' Step 9.5 last step - process the added block - 1.collect usable candidate models\n 2.malicious nodes identification\n 3.get rewards\n 4.do local udpates\n This code block is skipped if no valid block was generated in this round''')
 		all_devices_round_ends_time = []
 		for device in devices_list:
 			if device.return_the_added_block() and device.online_switcher():
