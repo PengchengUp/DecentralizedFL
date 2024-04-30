@@ -93,11 +93,11 @@ class Device:
         self.worker_associated_miner_set = set()
         self.local_update_time = None
         self.local_total_epoch = 0
-
         self.worker_acception_wait_time = worker_acception_wait_time
         self.unordered_arrival_time_accepted_miner_candidate = {}
         self.final_candidate_queue_to_validate = {}
         self.worker_accepted_broadcasted_miner_candidate = None or []
+
         self.post_validation_candidate_queue = None or []
         ''' For validators '''   
         self.accuracies_this_round = {}  
@@ -140,16 +140,17 @@ class Device:
         self.local_updates_rewards_per_transaction = 0
         self.local_total_epoch = 0
         self.variance_of_noises.clear()
+        self.worker_associated_miner_set.clear()  
+        self.unordered_arrival_time_accepted_miner_candidate.clear()
+        self.final_candidate_queue_to_validate.clear()
+        self.worker_accepted_broadcasted_miner_candidate.clear()
 
         self.received_block_from_miner = None
         self.accuracy_this_round = float('-inf')
         self.has_added_block = False
-        self.the_added_block = None
-        self.worker_associated_miner_set.clear()      
+        self.the_added_block = None   
         self.round_end_time = 0
-        self.unordered_arrival_time_accepted_miner_candidate.clear()
-        self.final_candidate_queue_to_validate.clear()
-        self.worker_accepted_broadcasted_miner_candidate.clear()
+
         self.post_validation_candidate_queue.clear()    
 
     def miner_reset_vars_for_new_round(self):
@@ -525,9 +526,71 @@ class Device:
 
     def return_candidate_model_and_signature(self, comm_round):
         self.candidate_model_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_local_updates_info": self.aggregate_local_updates_info, "miner_rsa_pub_key": self.return_rsa_pub_key()}
-        self.candidate_model_dict["miner_signature"] = self.sign_msg(sorted(candidate_model_dict.items()))
+        self.candidate_model_dict["miner_signature"] = self.sign_msg(sorted(self.candidate_model_dict.items()))
 
     ''' Step 5 - workers accept candidate models and broadcast to other workers in their respective peer lists .'''   
+    def return_associated_miners(self):
+        return vars(self)[f'{self.role}_associated_miner_set']
+    
+    def return_worker_acception_wait_time(self):
+        return self.worker_acception_wait_time
+    
+    def set_unordered_arrival_time_accepted_miner_candidate(self, unordered_candidate_arrival_queue):
+        self.unordered_arrival_time_accepted_miner_candidate = unordered_candidate_arrival_queue     #dict
+    
+    def set_candidate_for_final_validating_queue(self, final_candidate_arrival_queue):
+        self.final_candidate_queue_to_validate = final_candidate_arrival_queue #dict
+
+    def worker_broadcast_miner_candidate(self):
+        for peer in self.peer_list:
+            if peer.is_online():
+                if peer.return_role() == "worker":
+                    if not peer.return_idx() in self.black_list:
+                        print(f"worker {self.idx} is broadcasting received miner candidate to worker {peer.return_idx()}.")
+                        final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker = copy.copy(self.unordered_arrival_time_accepted_miner_candidate)
+                        # if offline, it's like the broadcasted transaction was not received, so skip a transaction
+                        for arrival_time, tx in self.unordered_arrival_time_accepted_miner_candidate.items():
+                            if not (self.online_switcher() and peer.online_switcher()):
+                                del final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker[arrival_time]
+                        # in the real distributed system, it should be broadcasting transaction one by one. Here we send the all received candidate(while online) and later calculate the order for the individual broadcasting transaction's arrival time mixed with the candidate itself received
+                        peer.accept_worker_broadcasted_miner_candidate(self, final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker)
+                        print(f"worker {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker)} miner candidate to worker {peer.return_idx()}.")
+                    else:
+                        print(f"Destination worker {peer.return_idx()} is in this worker {self.idx}'s black_list. broadcasting skipped for this dest worker.")
+
+    def accept_worker_broadcasted_miner_candidate(self, source_worker, unordered_transaction_arrival_queue_from_source_worker):
+        if not source_worker.return_idx() in self.black_list:
+            unordered_transaction_arrival_queue_from_source_worker_to_added = {}
+            for arrival_time, tx in unordered_transaction_arrival_queue_from_source_worker.items():
+                if not self.check_if_has_same_candidate_transaction(tx, self.unordered_arrival_time_accepted_miner_candidate, self.worker_accepted_broadcasted_miner_candidate):
+                    unordered_transaction_arrival_queue_from_source_worker_to_added[arrival_time] = tx
+            self.worker_accepted_broadcasted_miner_candidate.append({'source_worker_link_speed': source_worker.return_link_speed(),'broadcasted_candidate': copy.deepcopy(unordered_transaction_arrival_queue_from_source_worker_to_added)})
+            print(f"worker {self.idx} has accepted miner candidate from worker {source_worker.return_idx()}")
+        else:
+            print(f"Source worker {source_worker.return_idx()} is in worker {self.idx}'s black list. Broadcasted candidate not accepted.")
+    
+    def check_if_has_same_candidate_transaction(self, transaction_received_from_worker, transactions_received_from_associated_miners, worker_accepted_broadcasted_miner_candidate):
+        if_in_transactions_received_from_associated_miners = False
+        if_in_worker_accepted_broadcasted_miner_candidate = False
+        for _, transaction in transactions_received_from_associated_miners.items():
+            if transaction['miner_idx'] == transaction_received_from_worker['miner_idx']:
+                if_in_transactions_received_from_associated_miners = True                
+                break
+        for txs in worker_accepted_broadcasted_miner_candidate:
+            for _, tx in txs['broadcasted_candidate'].items():
+                if tx['miner_idx'] == transaction_received_from_worker['miner_idx']:
+                    if_in_worker_accepted_broadcasted_miner_candidate = True
+                    break
+        return if_in_transactions_received_from_associated_miners or if_in_worker_accepted_broadcasted_miner_candidate
+    
+    ''' Step 5.5: with the broadcasted miners candidate models, workers decide the final arrival order'''
+    def return_accepted_broadcasted_miner_candidate(self):
+        return self.worker_accepted_broadcasted_miner_candidate #list of dicts
+
+    def return_unordered_arrival_time_accepted_miner_candidate(self):
+        return  self.unordered_arrival_time_accepted_miner_candidate
+    
+    ''' Step 6: workers verify miners' signature and miners' candidate models by the order of transaction arrival time.'''
 
     
     ''' Common Methods '''
@@ -1043,14 +1106,6 @@ class Device:
             return True
             
     ''' Worker '''	 
-    def return_worker_acception_wait_time(self):
-        return self.worker_acception_wait_time
-    
-    def set_unordered_arrival_time_accepted_miner_candidate(self, unordered_candidate_arrival_queue):
-        self.unordered_arrival_time_accepted_miner_candidate = unordered_candidate_arrival_queue
-
-    def return_unordered_arrival_time_accepted_miner_candidate(self):
-        return  self.unordered_arrival_time_accepted_miner_candidate
 
     def malicious_worker_add_noise_to_weights(self, m):
         with torch.no_grad():
@@ -1084,53 +1139,6 @@ class Device:
                 validation_opti.zero_grad()
             return (time.time() - local_update_time)/self.computation_power, validation_net.state_dict()
 
-    def worker_broadcast_miner_candidate(self):
-        for peer in self.peer_list:
-            if peer.is_online():
-                if peer.return_role() == "worker":
-                    if not peer.return_idx() in self.black_list:
-                        print(f"worker {self.idx} is broadcasting received miner candidate to worker {peer.return_idx()}.")
-                        final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker = copy.copy(self.unordered_arrival_time_accepted_miner_candidate)
-                        # if offline, it's like the broadcasted transaction was not received, so skip a transaction
-                        for arrival_time, tx in self.unordered_arrival_time_accepted_miner_candidate.items():
-                            if not (self.online_switcher() and peer.online_switcher()):
-                                del final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker[arrival_time]
-                        # in the real distributed system, it should be broadcasting transaction one by one. Here we send the all received candidate(while online) and later calculate the order for the individual broadcasting transaction's arrival time mixed with the candidate itself received
-                        peer.accept_worker_broadcasted_miner_candidate(self, final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker)
-                        print(f"worker {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker)} miner candidate to worker {peer.return_idx()}.")
-                    else:
-                        print(f"Destination worker {peer.return_idx()} is in this worker {self.idx}'s black_list. broadcasting skipped for this dest worker.")
-
-    def accept_worker_broadcasted_miner_candidate(self, source_worker, unordered_transaction_arrival_queue_from_source_worker):
-        if not source_worker.return_idx() in self.black_list:
-            unordered_transaction_arrival_queue_from_source_worker_to_added = {}
-            for arrival_time, tx in unordered_transaction_arrival_queue_from_source_worker.items():
-                if not self.check_if_has_same_candidate_transaction(tx, self.unordered_arrival_time_accepted_miner_candidate, self.worker_accepted_broadcasted_miner_candidate):
-                    unordered_transaction_arrival_queue_from_source_worker_to_added[arrival_time] = tx
-            self.worker_accepted_broadcasted_miner_candidate.append({'source_worker_link_speed': source_worker.return_link_speed(),'broadcasted_candidate': copy.deepcopy(unordered_transaction_arrival_queue_from_source_worker_to_added)})
-            print(f"worker {self.idx} has accepted miner candidate from worker {source_worker.return_idx()}")
-        else:
-            print(f"Source worker {source_worker.return_idx()} is in worker {self.idx}'s black list. Broadcasted candidate not accepted.")
-    
-    def check_if_has_same_candidate_transaction(self, transaction_received_from_worker, transactions_received_from_associated_miners, worker_accepted_broadcasted_miner_candidate):
-        if_in_transactions_received_from_associated_miners = False
-        if_in_worker_accepted_broadcasted_miner_candidate = False
-        for _, transaction in transactions_received_from_associated_miners.items():
-            if transaction['miner_idx'] == transaction_received_from_worker['miner_idx']:
-                if_in_transactions_received_from_associated_miners = True                
-                break
-        for txs in worker_accepted_broadcasted_miner_candidate:
-            for _, tx in txs['broadcasted_candidate'].items():
-                if tx['miner_idx'] == transaction_received_from_worker['miner_idx']:
-                    if_in_worker_accepted_broadcasted_miner_candidate = True
-                    break
-        return if_in_transactions_received_from_associated_miners or if_in_worker_accepted_broadcasted_miner_candidate
-            
-    def return_accepted_broadcasted_miner_candidate(self):
-        return self.worker_accepted_broadcasted_miner_candidate
-    
-    def set_candidate_for_final_validating_queue(self, final_candidate_arrival_queue):
-        self.final_candidate_queue_to_validate = final_candidate_arrival_queue
     
     def return_final_candidate_validating_queue(self):
         return self.final_candidate_queue_to_validate
@@ -1272,8 +1280,7 @@ class Device:
         else:
             print(f"There are no available local params for {self.idx} to perform global updates in this comm round.")
         
-    def return_associated_miners(self):
-        return vars(self)[f'{self.role}_associated_miner_set']
+
         
     ''' miner '''
 
