@@ -413,7 +413,7 @@ if __name__=="__main__":
 					print(f"worker {worker.return_idx()} in miner {miner.return_idx()}'s black list. This worker's transactions won't be accpeted.")
 			miner.set_unordered_arrival_time_accepted_worker_transactions(transaction_arrival_queue)
 			# in case miner off line for accepting broadcasted transactions but can later back online to validate the transactions itself receives
-			miner.set_transaction_for_final_validating_queue(sorted(transaction_arrival_queue.items()))
+			miner.set_transaction_for_final_validating_queue(sorted(transaction_arrival_queue.items())) #MAYBE HAVE PROBLEM HERE
 			
 			# broadcast to other miners
 			if transaction_arrival_queue:
@@ -477,12 +477,12 @@ if __name__=="__main__":
 					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
 					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
 					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
-					miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round)
-					miner.return_candidate_model_and_signature(comm_round)
+					miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round)#get miner.aggregate_time, miner.candidate_parameters, miner.aggregate_rewards
+					miner.return_candidate_model_and_signature(comm_round) #get miner.candidate_model_dict
 			else:
 				print(f"miner {miner.return_idx()} {miner_iter+1}/{len(miners_this_round)} is offline and unable to aggregate the candidate model.")
 
-		print(''' Step 5 - workers accept candidate models and broadcast to other workers in their respective peer lists (miners aggregate_candidate_model() are called in this step.\n''')
+		print(''' Step 5 - workers accept candidate models and broadcast to other workers in their respective peer lists.\n''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			associated_miners = list(worker.return_associated_miners())
@@ -493,66 +493,32 @@ if __name__=="__main__":
 			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} is accepting miners' candidate models with link speed {worker_link_speed} bytes/s, if online...")
 			# used for arrival time easy sorting for later worker broadcasting (and acception order)
 			candadite_arrival_queue = {}
-			# miners aggregate_candidate_model() called here as their updates transmission may be restrained by workers' acception time and/or size 
-			if args['worker_acception_wait_time']:
-				print(f"worker wati time is specified as {args['worker_acception_wait_time']} seconds. let each miner aggregate_candidate_model till time limit")
-				for miner_iter in range(len(associated_miners)):
-					miner = associated_miners[miner_iter]
-					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
-					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
-					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
-					if not miner.return_idx() in worker.return_black_list():
-						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')
-						# time_tracker = 0
-						update_iter = 1
-						miner_link_speed = miner.return_link_speed() 
-						lower_link_speed = worker_link_speed if worker_link_speed < miner_link_speed else miner_link_speed
-						# while time_tracker < worker.return_worker_acception_wait_time(): #TODO maybe not like this 
-						if miner.online_switcher():
-							aggregate_spent_time = miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round)
-							unverified_candidate = miner.return_candidate_model_and_signature(comm_round)
-							unverified_candidate_size = getsizeof(str(unverified_candidate))
-							candidate_transmission_delay = unverified_candidate_size/lower_link_speed
-							if aggregate_spent_time + candidate_transmission_delay > worker.return_worker_acception_wait_time():
-								print(f'{miner.return_idx()}-miner candidate model arrival time exceeds the worker waiting time')
-								break
-							if worker.online_switcher():
-								# accept this transaction only if the worker is online
-								print(f"Worker {worker.return_idx()} has accepted this candidate.")
-								candadite_arrival_queue[aggregate_spent_time + candidate_transmission_delay] = unverified_candidate
-							else:
-								print(f"Worker {worker.return_idx()} offline and unable to accept this candidate")
+			print(f"worker wati time is specified as {args['worker_acception_wait_time']} seconds. let each miner aggregate_candidate_model till time limit")
+			for miner_iter in range(len(associated_miners)):
+				miner = associated_miners[miner_iter]
+				if not miner.return_idx() in worker.return_black_list():						
+					miner_link_speed = miner.return_link_speed() 
+					lower_link_speed = worker_link_speed if worker_link_speed < miner_link_speed else miner_link_speed
+					if miner.online_switcher():
+						candidate_transmission_delay = getsizeof(str(miner.candidate_model_dict))/lower_link_speed
+						candidate_arrival_time = candidate_transmission_delay + miner.aggregate_time
+						if candidate_arrival_time > args['worker_acception_wait_time']:
+							print(f'{miner.return_idx()}-miner candidate model arrival time exceeds the worker waiting time')
+							break
+						if worker.online_switcher():
+							# accept this transaction only if the worker is online
+							print(f"Worker {worker.return_idx()} has accepted this candidate.")
+							candadite_arrival_queue[candidate_arrival_time] = miner.candidate_model_dict
 						else:
-							print(f"miner {miner.return_idx()} offline and unable aggregate candidate model")
-			else:
-				# did not specify wait time. every associated miners aggregate the candidate model
-				for miner_iter in range(len(associated_miners)):
-					miner = associated_miners[miner_iter]
-					post_validation_transactions_by_miner = miner.return_post_validation_transactions_queue()
-					local_params_used_by_miner = miner.return_local_params_used_by_miner(post_validation_transactions_by_miner)
-					miner.set_local_updates_used_info_by_miner(post_validation_transactions_by_miner)
-					if not miner.return_idx() in worker.return_black_list():
-						print(f'miner {miner_iter+1}/{len(associated_miners)} of worker {worker.return_idx()} is aggregating candidate model')	 
-						if miner.online_switcher():
-							miner_link_speed = miner.return_link_speed() 
-							lower_link_speed = worker_link_speed if worker_link_speed < miner_link_speed else miner_link_speed
-							aggregate_spent_time = miner.aggregate_candidate_model(local_params_used_by_miner, rewards, log_files_folder_path_comm_round, comm_round)
-							unverified_candidate = miner.return_candidate_model_and_signature(comm_round)
-							unverified_candidate_size = getsizeof(str(unverified_candidate))
-							candidate_transmission_delay = unverified_candidate_size/lower_link_speed
-							if worker.online_switcher():
-								# accept this transaction only if the worker is online
-								print(f"Worker {worker.return_idx()} has accepted this candidate.")
-								candadite_arrival_queue[aggregate_spent_time + candidate_transmission_delay] = unverified_candidate
-							else:
-								print(f"Worker {worker.return_idx()} offline and unable to accept this candidate")
-						else:
-							print(f"miner {miner.return_idx()} offline and unable aggregate candidate model")
+							print(f"Worker {worker.return_idx()} offline and unable to accept this candidate")
 					else:
-						print(f"miner {miner.return_idx()} in worker {worker.return_idx()}'s black list. This miner's transactions won't be accpeted.")
-			worker.set_unordered_arrival_time_accepted_miner_candidate(candadite_arrival_queue)
+						print(f"miner {miner.return_idx()} offline and unable aggregate candidate model")
+				else:
+					print(f"miner {miner.return_idx()} in worker {worker.return_idx()}'s black list. This miner's transactions won't be accpeted.")
+
+			worker.set_unordered_arrival_time_accepted_miner_candidate(candadite_arrival_queue) #dict of arrival_time and candidate_model_dict
 			# in case worker off line for accepting broadcasted transactions but can later back online to validate the transactions itself receives
-			worker.set_candidate_for_final_validating_queue(sorted(candadite_arrival_queue.items()))
+			worker.set_candidate_for_final_validating_queue(sorted(candadite_arrival_queue.items())) #MAYBE HAVE PROBLEM HERE
 
 			# broadcast to other workers
 			if candadite_arrival_queue:
@@ -561,7 +527,7 @@ if __name__=="__main__":
 				print("No transactions have been received by this worker, probably due to workers and/or miners offline or timeout while doing local updates or transmitting updates, or all miners are in worker's black list.")
 
 
-		print(''' Step 5.5 - with the broadcasted miners candidate models, workers decide the final arrival order\n ''')
+		print(''' Step 5.5 - with the broadcasted miners candidate models, workers decide the final arrival order.\n ''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			accepted_broadcasted_miner_candidate = worker.return_accepted_broadcasted_miner_candidate()
@@ -577,19 +543,12 @@ if __name__=="__main__":
 						transmission_delay = getsizeof(str(broadcasted_transaction))/lower_link_speed
 						accepted_broadcasted_candidate_arrival_queue[transmission_delay + arrival_time_at_broadcasting_worker] = broadcasted_transaction
 			else:
-				print(f"worker {worker.return_idx()} {worker_iter+1}/{len(workers_this_round)} did not receive any broadcasted miner transaction this round.")
-			
+				print(f"worker {worker.return_idx()} {worker_iter+1}/{len(workers_this_round)} did not receive any broadcasted miner transaction this round.")			
 			# mix the boardcasted candidate with the direct accepted candidate
 			final_candidate_arrival_queue = sorted({**worker.return_unordered_arrival_time_accepted_miner_candidate(), **accepted_broadcasted_candidate_arrival_queue}.items()) 
-			'''
-			#{**d1, **d2}This expression combines two dictionaries, ** operator is used to unpack both dictionaries and combine them into one dictionary
-			#items(): This method converts the combined dictionary into a sequence of (key, value) tuples.
-			#sorted(...): This function sorts the sequence of tuples based on the keys (arrival times). Since sorted returns a list of sorted tuples, the final result is a sorted list of (arrival_time, transaction) tuples.
-			'''
-
 			# Set the final transaction queue for the worker
 			worker.set_candidate_for_final_validating_queue(final_candidate_arrival_queue)
-			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} done calculating the ordered final candidate arrival order. Total {len(final_candidate_arrival_queue)} accepted candidate.")
+			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} done calculating the ordered final candidate arrival order. Total {len(final_candidate_arrival_queue)} accepted candidate need to be validated.")
 
 		
 		print(''' Step 6 - workers verify miners' signature and miners' candidate models by the order of transaction arrival time.\n''')
