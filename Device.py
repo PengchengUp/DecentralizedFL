@@ -157,6 +157,7 @@ class Device:
         self.unconfirmmed_transactions.clear()
         self.broadcasted_transactions.clear()
         self.unordered_arrival_time_accepted_worker_transactions.clear()
+        self.post_validation_transactions_queue.clear()
         self.miner_accepted_broadcasted_worker_transactions.clear()
         self.candidate_model_dict.clear()
         self.aggregate_local_updates_info.clear()
