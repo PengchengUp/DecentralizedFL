@@ -82,7 +82,7 @@ parser.add_argument('-cons', '--consensus', type=str, default='PoW', help="inclu
 
 # blockchain FL miner restriction tuning parameters
 parser.add_argument('-mt', '--miner_acception_wait_time', type=float, default=float("inf"), help="default time window for miners to accept transactions, in seconds.")
-parser.add_argument('-wt', '--worker_acception_wait_time', type=float, default=0.0, help="default time window for workers to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
+parser.add_argument('-wt', '--worker_acception_wait_time', type=float, default=float("inf"), help="default time window for workers to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-ml', '--miner_accepted_transactions_size_limit', type=float, default=0.0, help="no further transactions will be accepted by miner after this limit. 0 means no size limit. either this or -mt has to be specified, or both. This param determines the final block_size")
 parser.add_argument('-mp', '--miner_poe_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoE")
 parser.add_argument('-vh', '--validate_threshold', type=float, default=0.5, help="a threshold value of accuracy difference to determine malicious worker") #TODO
