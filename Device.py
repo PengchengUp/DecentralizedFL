@@ -1459,13 +1459,13 @@ class Device:
     def proof_of_endorsement(self, candidate_block):
         candidate_block.set_mined_by(self.idx)
         transactions_in_candidate_block = candidate_block.return_transactions() 
-        valid_sig_transacitons_in_candidate_block = transactions_in_candidate_block["valid_worker_sig_transaciton"] #list, 元素是字典变量post_validation_candidate
+        valid_sig_transacitons_in_candidate_block = transactions_in_candidate_block["valid_worker_sig_transacitons"] #list, 元素是字典变量post_validation_candidate
         for transaciton_in_candidate_block in  valid_sig_transacitons_in_candidate_block: 
             supported_infos = transaciton_in_candidate_block['supported_workers']
             average_accuracy_of_this_candidate_model = sum(info['candidate_model_accuracy'] for info in supported_infos) / len(supported_infos)
             transaciton_in_candidate_block['average_accuracy_of_this_candidate_model'] = average_accuracy_of_this_candidate_model
         sorted_valid_sig_transacitons_in_candidate_block = sorted(valid_sig_transacitons_in_candidate_block, key=lambda x: x['average_accuracy_of_this_candidate_model'], reverse=True)
-        transactions_in_candidate_block["valid_worker_sig_transaciton"] = sorted_valid_sig_transacitons_in_candidate_block
+        transactions_in_candidate_block["valid_worker_sig_transacitons"] = sorted_valid_sig_transacitons_in_candidate_block
         leader_idx = sorted_valid_sig_transacitons_in_candidate_block[0]['miner_idx']
         max_candidate_model_accuracy = sorted_valid_sig_transacitons_in_candidate_block[0]['average_accuracy_of_this_candidate_model']
         current_hash = candidate_block.compute_hash()

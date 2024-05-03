@@ -391,7 +391,7 @@ if __name__=="__main__":
 				print(f"No workers are associated with miner {miner.return_idx()} {miner_iter+1}/{len(miners_this_round)} for this communication round.")
 				continue
 			miner_link_speed = miner.return_link_speed()
-			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is accepting workers' updates with link speed {miner_link_speed} bytes/s, and miner wati time is specified as {args['miner_acception_wait_time']} seconds.")			
+			print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is accepting workers' updates with link speed {miner_link_speed} bytes/s, and miner wait time is specified as {args['miner_acception_wait_time']} seconds.")			
 			transaction_arrival_queue = {}# used for arrival time easy sorting for later miner broadcasting (and miners' acception order)
 			for worker_iter in range(len(associated_workers)):
 				worker = associated_workers[worker_iter]
@@ -493,7 +493,7 @@ if __name__=="__main__":
 			print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} is accepting miners' candidate models with link speed {worker_link_speed} bytes/s, if online...")
 			# used for arrival time easy sorting for later worker broadcasting (and acception order)
 			candadite_arrival_queue = {}
-			print(f"worker wati time is specified as {args['worker_acception_wait_time']} seconds. let each miner aggregate_candidate_model till time limit")
+			print(f"worker wait time is specified as {args['worker_acception_wait_time']} seconds. let each miner aggregate_candidate_model till time limit")
 			for miner_iter in range(len(associated_miners)):
 				miner = associated_miners[miner_iter]
 				if not miner.return_idx() in worker.return_black_list():						
