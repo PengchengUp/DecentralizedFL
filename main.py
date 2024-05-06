@@ -691,6 +691,10 @@ if __name__=="__main__":
 							else:
 								# worker's transaction signature invalid
 								invalid_worker_sig_candidate_transaciton = copy.deepcopy(unconfirmmed_candidate_transaction)
+								invalid_worker_sig_candidate_transaciton['miner_verification_time'] = verification_time
+								invalid_worker_sig_candidate_transaciton['miner_verification_rewards_for_this_tx'] = rewards
+								invalid_worker_sig_candidate_transacitons.append(invalid_worker_sig_candidate_transaciton)
+								transaction_to_sign = invalid_worker_sig_candidate_transaciton
 							signing_time = miner.sign_candidate_transaction(transaction_to_sign)
 							new_begin_mining_time = arrival_time + verification_time + signing_time							
 					else:

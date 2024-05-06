@@ -820,6 +820,12 @@ class Device:
 
         return candidate_block, leader_idx, max_candidate_model_accuracy       
 
+    def sign_block(self, block_to_sign):
+        block_to_sign.set_signature(self.sign_msg(block_to_sign.__dict__))
+
+    def set_mined_block(self, mined_block):
+        self.mined_block = mined_block
+
     def propagated_the_block(self, propagating_time_point, block_to_propagate):
         for peer in self.peer_list:
             if peer.is_online():
@@ -865,11 +871,11 @@ class Device:
         if mined_by in self.black_list:
             print(f"The miner {mined_by} mined this block is in {self.idx}'s black list. Block will not be verified.")
             return False, False
-        # check if the proof is valid(verify _block_hash).
+        # # check if the proof is valid(verify _block_hash).
         # if not self.check_hash(block_to_verify):
         #     print(f"Hash of the block from miner {self.idx} is not verified.")
         #     return False, False
-        # # check if miner's signature is valid
+        # check if miner's signature is valid
         if self.check_signature:
             signature_dict = block_to_verify.return_miner_rsa_pub_key()
             modulus = signature_dict["modulus"]
@@ -893,7 +899,7 @@ class Device:
                     return False, False
         # check if mined by leader
         leader_in_own_block = self.return_mined_block().return_leader_id()
-        if mined_by != leader_in_own_block.return_leader():
+        if mined_by != leader_in_own_block:
             print(f"The block sent by miner {sending_miner} mined by miner {mined_by} is not from the leader. Block not verified and won't be added. Device needs to resync chain next round.")
             return False, False
         # All verifications done.
@@ -1452,7 +1458,7 @@ class Device:
 
     def request_to_download(self, block_to_download, requesting_time_point):
         print(f"miner {self.idx} is requesting its associated devices to download the block it just added to its chain")
-        devices_in_association = self.miner_associated_validator_set.union(self.miner_associated_worker_set)
+        devices_in_association = self.miner_associated_worker_set.union(self.miner_associated_worker_set)
         for device in devices_in_association:
             # theoratically, one device is associated to a specific miner, so we don't have a miner_block_arrival_queue here
             if self.online_switcher() and device.online_switcher():
@@ -1539,16 +1545,7 @@ class Device:
         validation_transaction_dict["signature"] = self.sign_msg(sorted(validation_transaction_dict.items()))
         return validation_transaction_dict
 
-    
-    ''' worker and validator '''
-
-    def set_mined_block(self, mined_block):
-        self.mined_block = mined_block
-
-
     ''' miner and validator '''
-    def sign_block(self, block_to_sign):
-        block_to_sign.set_signature(self.sign_msg(block_to_sign.__dict__))
 
     def add_unconfirmmed_transaction(self, unconfirmmed_transaction, souce_device_idx):
         if not souce_device_idx in self.black_list:
