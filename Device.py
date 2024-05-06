@@ -120,15 +120,16 @@ class Device:
         self.unordered_arrival_time_accepted_worker_validated_candidate_transactions = {}
         self.miner_acception_wait_time = miner_acception_wait_time
         self.miner_accepted_transactions_size_limit = miner_accepted_transactions_size_limit
+        self.unordered_propagated_block_processing_queue = {} # pure simulation queue and does not exist in real distributed system
+        self.mined_block = None
 
         # dict cannot be added to set()
         self.unconfirmmed_transactions = None or []
         self.broadcasted_transactions = None or []
-        self.mined_block = None
         self.received_propagated_block = None
         self.received_propagated_validator_block = None
         self.block_generation_time_point = None
-        self.unordered_propagated_block_processing_queue = {} # pure simulation queue and does not exist in real distributed system
+
         ''' For malicious node '''
         self.variance_of_noises = None or []
 
@@ -166,9 +167,9 @@ class Device:
         self.unordered_arrival_time_accepted_worker_validated_candidate_transactions.clear()
         self.final_candidate_transactions_queue_to_mine.clear()
         self.accepted_miner_broadcasted_worker_validated_candidate_transactions.clear()
-
-
+        self.unordered_propagated_block_processing_queue.clear()
         self.mined_block = None
+
         self.received_propagated_block = None
         self.received_propagated_validator_block = None
         self.has_added_block = False
@@ -177,7 +178,6 @@ class Device:
         # self.miner_accepted_broadcasted_validator_transactions.clear()
         self.block_generation_time_point = None
 		#self.block_to_add = None
-        self.unordered_propagated_block_processing_queue.clear()
         self.round_end_time = 0
 
 
@@ -783,9 +783,134 @@ class Device:
         candidate_transaction["miner_signature"] = self.sign_msg(sorted(candidate_transaction.items()))
         signing_time = (time.time() - signing_time)/self.computation_power
         return signing_time
-    #step8 未完待续
     
+    def set_block_generation_time_point(self, block_generation_time_point):
+        self.block_generation_time_point = block_generation_time_point
+
+    # def mine_block(self, candidate_block, rewards, starting_nonce=0):
+    #     candidate_block.set_mined_by(self.idx)
+    #     pow_mined_block = self.proof_of_work(candidate_block)
+    #     # pow_mined_block.set_mined_by(self.idx)
+    #     pow_mined_block.set_mining_rewards(rewards)
+    #     return pow_mined_block
+    def mine_block(self, candidate_block, rewards):
+        candidate_block.set_mined_by(self.idx)
+        mined_block, leader_idx, max_candidate_model_accuracy = self.proof_of_endorsement(candidate_block)
+        # pow_mined_block.set_mined_by(self.idx)
+        mined_block.set_mining_rewards(rewards)
+        mined_block.set_leader_id(leader_idx)
+        mined_block.set_max_candidate_model_accuracy(max_candidate_model_accuracy)
+        return mined_block
+
+    #TODO find the leader among miners
+    def proof_of_endorsement(self, candidate_block):
+        candidate_block.set_mined_by(self.idx)
+        transactions_in_candidate_block = candidate_block.return_transactions() 
+        valid_sig_transacitons_in_candidate_block = transactions_in_candidate_block["valid_worker_sig_transacitons"] #list, 元素是字典变量post_validation_candidate
+        for transaciton_in_candidate_block in valid_sig_transacitons_in_candidate_block: 
+            supported_infos = transaciton_in_candidate_block['supported_workers']
+            average_accuracy_of_this_candidate_model = sum(info['candidate_model_accuracy'] for info in supported_infos) / len(supported_infos)
+            transaciton_in_candidate_block['average_accuracy_of_this_candidate_model'] = average_accuracy_of_this_candidate_model
+        sorted_valid_sig_transacitons_in_candidate_block = sorted(valid_sig_transacitons_in_candidate_block, key=lambda x: x['average_accuracy_of_this_candidate_model'], reverse=True)
+        transactions_in_candidate_block["valid_worker_sig_transacitons"] = sorted_valid_sig_transacitons_in_candidate_block
+        leader_idx = sorted_valid_sig_transacitons_in_candidate_block[0]['miner_idx']
+        max_candidate_model_accuracy = sorted_valid_sig_transacitons_in_candidate_block[0]['average_accuracy_of_this_candidate_model']
+        current_hash = candidate_block.compute_hash()
+        candidate_block.set_hash(current_hash)
+
+        return candidate_block, leader_idx, max_candidate_model_accuracy       
+
+    def propagated_the_block(self, propagating_time_point, block_to_propagate):
+        for peer in self.peer_list:
+            if peer.is_online():
+                if peer.return_role() == "miner":
+                    if not peer.return_idx() in self.black_list:
+                        print(f"{self.role} {self.idx} is propagating its mined block to {peer.return_role()} {peer.return_idx()}.")
+                        if peer.online_switcher():
+                            peer.accept_the_propagated_block(self, propagating_time_point, block_to_propagate)
+                    else:
+                        print(f"Destination miner {peer.return_idx()} is in {self.role} {self.idx}'s black_list. Propagating skipped for this dest miner.")
+   
+    def accept_the_propagated_block(self, source_miner, source_miner_propagating_time_point, propagated_block):
+        if not source_miner.return_idx() in self.black_list:
+            source_miner_link_speed = source_miner.return_link_speed()
+            this_miner_link_speed = self.link_speed
+            lower_link_speed = this_miner_link_speed if this_miner_link_speed < source_miner_link_speed else source_miner_link_speed
+            transmission_delay = getsizeof(str(propagated_block.__dict__))/lower_link_speed
+            self.unordered_propagated_block_processing_queue[source_miner_propagating_time_point + transmission_delay] = propagated_block
+            print(f"{self.role} {self.idx} has accepted accepted a propagated block from miner {source_miner.return_idx()}")
+        else:
+            print(f"Source miner {source_miner.return_role()} {source_miner.return_idx()} is in {self.role} {self.idx}'s black list. Propagated block not accepted.")
+
+    def add_propagated_block_to_processing_queue(self, arrival_time, propagated_block):
+        self.unordered_propagated_block_processing_queue[arrival_time] = propagated_block
+
+    ''' Step 9: miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block'''
     
+    def return_unordered_propagated_block_processing_queue(self):
+        return self.unordered_propagated_block_processing_queue
+
+    def return_mined_block(self):
+        return self.mined_block
+        
+    def verify_block(self, block_to_verify, sending_miner):
+        if not self.online_switcher():
+            print(f"{self.idx} goes offline when verifying a block")
+            return False, False
+        verification_time = time.time()
+        mined_by = block_to_verify.return_mined_by()
+        if sending_miner in self.black_list:
+            print(f"The miner propagating/sending this block {sending_miner} is in {self.idx}'s black list. Block will not be verified.")
+            return False, False
+        if mined_by in self.black_list:
+            print(f"The miner {mined_by} mined this block is in {self.idx}'s black list. Block will not be verified.")
+            return False, False
+        # check if the proof is valid(verify _block_hash).
+        # if not self.check_hash(block_to_verify):
+        #     print(f"Hash of the block from miner {self.idx} is not verified.")
+        #     return False, False
+        # # check if miner's signature is valid
+        if self.check_signature:
+            signature_dict = block_to_verify.return_miner_rsa_pub_key()
+            modulus = signature_dict["modulus"]
+            pub_key = signature_dict["pub_key"]
+            signature = block_to_verify.return_signature()
+            # verify signature
+            block_to_verify_before_sign = copy.deepcopy(block_to_verify)
+            block_to_verify_before_sign.remove_signature_for_verification()
+            hash = int.from_bytes(sha256(str(block_to_verify_before_sign.__dict__).encode('utf-8')).digest(), byteorder='big')
+            hashFromSignature = pow(signature, pub_key, modulus)
+            if hash != hashFromSignature:
+                print(f"Signature of the block sent by miner {sending_miner} mined by miner {mined_by} is not verified by {self.role} {self.idx}.")
+                return False, False
+            # check previous hash based on own chain
+            last_block = self.return_blockchain_object().return_last_block()
+            if last_block is not None:
+                # check if the previous_hash referred in the block and the hash of latest block in the chain match.
+                last_block_hash = last_block.compute_hash(hash_entire_block=True)
+                if block_to_verify.return_previous_block_hash() != last_block_hash:
+                    print(f"Block sent by miner {sending_miner} mined by miner {mined_by} has the previous hash recorded as {block_to_verify.return_previous_block_hash()}, but the last block's hash in chain is {last_block_hash}. This is possibly due to a forking event from last round. Block not verified and won't be added. Device needs to resync chain next round.")
+                    return False, False
+        # check if mined by leader
+        leader_in_own_block = self.return_mined_block().return_leader_id()
+        if mined_by != leader_in_own_block.return_leader():
+            print(f"The block sent by miner {sending_miner} mined by miner {mined_by} is not from the leader. Block not verified and won't be added. Device needs to resync chain next round.")
+            return False, False
+        # All verifications done.
+        print(f"Block accepted from miner {sending_miner} mined by {mined_by} has been verified by {self.idx}!")
+        verification_time = (time.time() - verification_time)/self.computation_power
+        return block_to_verify, verification_time
+
+    def check_hash(self, block_to_check):
+        # remove its block hash(compute_hash() by default) to verify hash as block hash was set after pow
+        hash = block_to_check.return_hash()
+        # print("hash", hash)
+        # print("compute_hash", block_to_check.compute_hash())
+        #It checks if the PoW starts with a string of zeros whose length is equal to the PoW difficulty specified in the class (self.pow_difficulty).
+        #It also verifies that the PoW matches the hash of the block (block_to_check.compute_hash()).
+        return hash == block_to_check.compute_hash()  
+      
+
     ''' Common Methods '''
 
     ''' setters '''
@@ -950,16 +1075,7 @@ class Device:
             print()
         # WILL ALWAYS RETURN TRUE AS OFFLINE PEERS WON'T BE REMOVED ANY MORE, UNLESS ALL PEERS ARE MALICIOUS...but then it should not register with any other peer. Original purpose - if peer_list ends up empty, randomly register with another device
         return False if not self.peer_list else True
-
-    def check_hash(self, block_to_check):
-        # remove its block hash(compute_hash() by default) to verify hash as block hash was set after pow
-        hash = block_to_check.return_hash()
-        # print("hash", hash)
-        # print("compute_hash", block_to_check.compute_hash())
-        #It checks if the PoW starts with a string of zeros whose length is equal to the PoW difficulty specified in the class (self.pow_difficulty).
-        #It also verifies that the PoW matches the hash of the block (block_to_check.compute_hash()).
-        return hash == block_to_check.compute_hash()  
-    
+  
 
     def check_chain_validity(self, chain_to_check):
         chain_len = chain_to_check.return_chain_length()
@@ -1072,54 +1188,6 @@ class Device:
         else:
             print(f"A transaction recorded by miner {miner_device_idx} in the block is verified!")
             return True
-        
-    def verify_block(self, block_to_verify, sending_miner):
-        if not self.online_switcher():
-            print(f"{self.idx} goes offline when verifying a block")
-            return False, False
-        verification_time = time.time()
-        mined_by = block_to_verify.return_mined_by()
-        if sending_miner in self.black_list:
-            print(f"The miner propagating/sending this block {sending_miner} is in {self.idx}'s black list. Block will not be verified.")
-            return False, False
-        if mined_by in self.black_list:
-            print(f"The miner {mined_by} mined this block is in {self.idx}'s black list. Block will not be verified.")
-            return False, False
-        # check if the proof is valid(verify _block_hash).
-        if not self.check_hash(block_to_verify):
-            print(f"Hash of the block from miner {self.idx} is not verified.")
-            return False, False
-        # # check if miner's signature is valid
-        if self.check_signature:
-            signature_dict = block_to_verify.return_miner_rsa_pub_key()
-            modulus = signature_dict["modulus"]
-            pub_key = signature_dict["pub_key"]
-            signature = block_to_verify.return_signature()
-            # verify signature
-            block_to_verify_before_sign = copy.deepcopy(block_to_verify)
-            block_to_verify_before_sign.remove_signature_for_verification()
-            hash = int.from_bytes(sha256(str(block_to_verify_before_sign.__dict__).encode('utf-8')).digest(), byteorder='big')
-            hashFromSignature = pow(signature, pub_key, modulus)
-            if hash != hashFromSignature:
-                print(f"Signature of the block sent by miner {sending_miner} mined by miner {mined_by} is not verified by {self.role} {self.idx}.")
-                return False, False
-            # check previous hash based on own chain
-            last_block = self.return_blockchain_object().return_last_block()
-            if last_block is not None:
-                # check if the previous_hash referred in the block and the hash of latest block in the chain match.
-                last_block_hash = last_block.compute_hash(hash_entire_block=True)
-                if block_to_verify.return_previous_block_hash() != last_block_hash:
-                    print(f"Block sent by miner {sending_miner} mined by miner {mined_by} has the previous hash recorded as {block_to_verify.return_previous_block_hash()}, but the last block's hash in chain is {last_block_hash}. This is possibly due to a forking event from last round. Block not verified and won't be added. Device needs to resync chain next round.")
-                    return False, False
-        # check if mined by leader
-        leader_in_own_block = self.return_mined_block().return_leader_id()
-        if mined_by != leader_in_own_block.return_leader():
-            print(f"The block sent by miner {sending_miner} mined by miner {mined_by} is not from the leader. Block not verified and won't be added. Device needs to resync chain next round.")
-            return False, False
-        # All verifications done.
-        print(f"Block accepted from miner {sending_miner} mined by {mined_by} has been verified by {self.idx}!")
-        verification_time = (time.time() - verification_time)/self.computation_power
-        return block_to_verify, verification_time
 
     def add_block(self, block_to_add):
         self.return_blockchain_object().append_block(block_to_add)
@@ -1400,34 +1468,6 @@ class Device:
             else:
                 print(f"Unfortunately, either miner {self.idx} or {device.return_idx()} goes offline while processing this request-to-download block.")
 
-    def propagated_the_block(self, propagating_time_point, block_to_propagate):
-        for peer in self.peer_list:
-            if peer.is_online():
-                if peer.return_role() == "miner":
-                    if not peer.return_idx() in self.black_list:
-                        print(f"{self.role} {self.idx} is propagating its mined block to {peer.return_role()} {peer.return_idx()}.")
-                        if peer.online_switcher():
-                            peer.accept_the_propagated_block(self, self.block_generation_time_point, block_to_propagate)
-                    else:
-                        print(f"Destination miner {peer.return_idx()} is in {self.role} {self.idx}'s black_list. Propagating skipped for this dest miner.")
-   
-    def accept_the_propagated_block(self, source_miner, source_miner_propagating_time_point, propagated_block):
-        if not source_miner.return_idx() in self.black_list:
-            source_miner_link_speed = source_miner.return_link_speed()
-            this_miner_link_speed = self.link_speed
-            lower_link_speed = this_miner_link_speed if this_miner_link_speed < source_miner_link_speed else source_miner_link_speed
-            transmission_delay = getsizeof(str(propagated_block.__dict__))/lower_link_speed
-            self.unordered_propagated_block_processing_queue[source_miner_propagating_time_point + transmission_delay] = propagated_block
-            print(f"{self.role} {self.idx} has accepted accepted a propagated block from miner {source_miner.return_idx()}")
-        else:
-            print(f"Source miner {source_miner.return_role()} {source_miner.return_idx()} is in {self.role} {self.idx}'s black list. Propagated block not accepted.")
-
-    def add_propagated_block_to_processing_queue(self, arrival_time, propagated_block):
-        self.unordered_propagated_block_processing_queue[arrival_time] = propagated_block
-    
-    def return_unordered_propagated_block_processing_queue(self):
-        return self.unordered_propagated_block_processing_queue
-
 
     def return_miners_eligible_to_continue(self):
         miners_set = set()
@@ -1440,39 +1480,6 @@ class Device:
     def return_accepted_broadcasted_transactions(self):
         return self.broadcasted_transactions
 
-
-    # def mine_block(self, candidate_block, rewards, starting_nonce=0):
-    #     candidate_block.set_mined_by(self.idx)
-    #     pow_mined_block = self.proof_of_work(candidate_block)
-    #     # pow_mined_block.set_mined_by(self.idx)
-    #     pow_mined_block.set_mining_rewards(rewards)
-    #     return pow_mined_block
-    def mine_block(self, candidate_block, rewards):
-        candidate_block.set_mined_by(self.idx)
-        mined_block, leader_idx, max_candidate_model_accuracy = self.proof_of_endorsement(candidate_block)
-        # pow_mined_block.set_mined_by(self.idx)
-        mined_block.set_mining_rewards(rewards)
-        mined_block.set_leader_id(leader_idx)
-        mined_block.set_max_candidate_model_accuracy(max_candidate_model_accuracy)
-        return mined_block
-    
-    #TODO find the leader among miners
-    def proof_of_endorsement(self, candidate_block):
-        candidate_block.set_mined_by(self.idx)
-        transactions_in_candidate_block = candidate_block.return_transactions() 
-        valid_sig_transacitons_in_candidate_block = transactions_in_candidate_block["valid_worker_sig_transacitons"] #list, 元素是字典变量post_validation_candidate
-        for transaciton_in_candidate_block in  valid_sig_transacitons_in_candidate_block: 
-            supported_infos = transaciton_in_candidate_block['supported_workers']
-            average_accuracy_of_this_candidate_model = sum(info['candidate_model_accuracy'] for info in supported_infos) / len(supported_infos)
-            transaciton_in_candidate_block['average_accuracy_of_this_candidate_model'] = average_accuracy_of_this_candidate_model
-        sorted_valid_sig_transacitons_in_candidate_block = sorted(valid_sig_transacitons_in_candidate_block, key=lambda x: x['average_accuracy_of_this_candidate_model'], reverse=True)
-        transactions_in_candidate_block["valid_worker_sig_transacitons"] = sorted_valid_sig_transacitons_in_candidate_block
-        leader_idx = sorted_valid_sig_transacitons_in_candidate_block[0]['miner_idx']
-        max_candidate_model_accuracy = sorted_valid_sig_transacitons_in_candidate_block[0]['average_accuracy_of_this_candidate_model']
-        current_hash = candidate_block.compute_hash()
-        candidate_block.set_hash(current_hash)
-
-        return candidate_block, leader_idx, max_candidate_model_accuracy
 
     def proof_of_work(self, candidate_block, starting_nonce=0):
         candidate_block.set_mined_by(self.idx)
@@ -1488,9 +1495,6 @@ class Device:
         candidate_block.set_pow_proof(current_hash)
         
         return candidate_block
-
-    def set_block_generation_time_point(self, block_generation_time_point):
-        self.block_generation_time_point = block_generation_time_point
     
     def return_block_generation_time_point(self):
         return self.block_generation_time_point
@@ -1541,8 +1545,6 @@ class Device:
     def set_mined_block(self, mined_block):
         self.mined_block = mined_block
 
-    def return_mined_block(self):
-        return self.mined_block
 
     ''' miner and validator '''
     def sign_block(self, block_to_sign):

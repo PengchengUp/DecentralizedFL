@@ -746,7 +746,7 @@ if __name__=="__main__":
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
 
 		
-		print(''' Step 9 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block''')
+		print(''' Step 9 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block. \n''')
 		forking_happened = False
 		# comm_round_block_gen_time regarded as the time point when the winning miner mines its block, 
 		#calculated from the beginning of the round. If there is forking in PoW or rewards info out of sync in PoS, 
@@ -763,7 +763,7 @@ if __name__=="__main__":
 
 			if ordered_all_blocks_processing_queue:
 				candidate_PoE_blocks = {}
-				print("select winning block based on PoE")
+				print("select winning block based on PoE... \n")
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is deciding if a valid propagated block arrived before it successfully mines its own block...")
 				for (block_arrival_time, block_to_verify) in ordered_all_blocks_processing_queue:
 					verified_block, verification_time = miner.verify_block(block_to_verify, block_to_verify.return_mined_by())
