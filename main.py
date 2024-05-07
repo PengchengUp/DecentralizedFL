@@ -701,51 +701,56 @@ if __name__=="__main__":
 						print(f"A verification process is skipped for the candidate transaction from worker {unconfirmmed_candidate_transaction['validation_done_by']} by miner {miner.return_idx()} due to miner offline.")
 						new_begin_mining_time = arrival_time
 					begin_mining_time = new_begin_mining_time if new_begin_mining_time > begin_mining_time else begin_mining_time
-				
-				transactions_to_record_in_block = {}
-				transactions_to_record_in_block['valid_worker_sig_transacitons'] = valid_worker_sig_candidate_transacitons
-				transactions_to_record_in_block['invalid_worker_sig_transacitons'] = invalid_worker_sig_candidate_transacitons
-				# put transactions into candidate block and begin mining
-				# block index starts from 1
-				start_time_point = time.time()
-				candidate_block = Block(idx=miner.return_blockchain_object().return_chain_length()+1, transactions=transactions_to_record_in_block, miner_rsa_pub_key=miner.return_rsa_pub_key())
 
-				# mine the block 
-				miner_computation_power = miner.return_computation_power() 
-				if not miner_computation_power:
-					block_generation_time_spent = float('inf')
-					miner.set_block_generation_time_point(float('inf'))
-					print(f"{miner.return_idx()} - miner mines a block in INFINITE time...")
-					continue
-				recorded_transactions = candidate_block.return_transactions()
-				if recorded_transactions['valid_worker_sig_transacitons'] or recorded_transactions['invalid_worker_sig_transacitons']:
-					print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} mining the block...")
-					# return the last block and add previous hash
-					last_block = miner.return_blockchain_object().return_last_block()
-					if last_block is None:
-						# will mine the genesis block
-						candidate_block.set_previous_block_hash(None)
-					else:
-						candidate_block.set_previous_block_hash(last_block.compute_hash(hash_entire_block=True))
-					# mine the candidate block by PoW, inside which the block_hash is also set
-					mined_block = miner.mine_block(candidate_block, rewards) #consensus
+
+				# confirm the Leader in this round
+				leader_idx, max_candidate_model_accuracy, sorted_valid_sig_transacitons = miner.find_leader_and_max_accuracy_among_valid_candidate_transacitons(valid_worker_sig_candidate_transacitons)
+				if miner.return_idx() == leader_idx:
+					if miner.online_switcher():
+						print(f"miner {miner.return_idx()} is the leader of this round with max candidate model accuracy {max_candidate_model_accuracy}.")
+						transactions_to_record_in_block = {}
+						transactions_to_record_in_block['valid_worker_sig_transacitons'] = sorted_valid_sig_transacitons
+						transactions_to_record_in_block['invalid_worker_sig_transacitons'] = invalid_worker_sig_candidate_transacitons
+
+						# put transactions into candidate block and begin mining
+						# block index starts from 1
+						start_time_point = time.time()
+						candidate_block = Block(idx=miner.return_blockchain_object().return_chain_length()+1, transactions=transactions_to_record_in_block, miner_rsa_pub_key=miner.return_rsa_pub_key())
+
+						# prepare the candidate block 
+						miner_computation_power = miner.return_computation_power() 
+						if not miner_computation_power:
+							block_generation_time_spent = float('inf')
+							miner.set_block_generation_time_point(float('inf'))
+							print(f"{miner.return_idx()} - miner mines a block in INFINITE time...")
+							continue
+						recorded_transactions = candidate_block.return_transactions()
+						if recorded_transactions['valid_worker_sig_transacitons'] or recorded_transactions['invalid_worker_sig_transacitons']:
+							print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} mining the block...")
+							# return the last block and add previous hash
+							last_block = miner.return_blockchain_object().return_last_block()
+							if last_block is None:
+								# will mine the genesis block
+								candidate_block.set_previous_block_hash(None)
+							else:
+								candidate_block.set_previous_block_hash(last_block.compute_hash(hash_entire_block=True))
+							candidate_block.set_mined_by(miner.return_idx())
+							miner.sign_block(candidate_block)
+							current_hash = candidate_block.compute_hash()
+							candidate_block.set_hash(current_hash)
+							# record mining time
+							block_generation_time_spent = (time.time() - start_time_point)/miner_computation_power
+							print(f"{miner.return_idx()} - miner mines a block in {block_generation_time_spent} seconds.")
+							# immediately propagate the block
+							miner.propagated_the_block(miner.return_block_generation_time_point(), candidate_block)
+						else:
+							print("No transaction to mine for this block.")
+							continue
+					else:#TODO: handle Leader goes offline while mining a block
+						print(f"Unfortunately, {miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} goes offline while mining a block. This if-successful-mined block is not propagated.")
 				else:
-					print("No transaction to mine for this block.")
-					continue
-				
-				# unfortunately may go offline while propagating its block
-				if miner.online_switcher():
-					# sign the block
-					miner.sign_block(mined_block)
-					miner.set_mined_block(mined_block)
-					# record mining time
-					block_generation_time_spent = (time.time() - start_time_point)/miner_computation_power
-					miner.set_block_generation_time_point(begin_mining_time + block_generation_time_spent)
-					print(f"{miner.return_idx()} - miner mines a block in {block_generation_time_spent} seconds.")
-					# immediately propagate the block
-					miner.propagated_the_block(miner.return_block_generation_time_point(), mined_block)
-				else:
-					print(f"Unfortunately, {miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} goes offline after, if successful, mining a block. This if-successful-mined block is not propagated.")
+					#miner {miner.return_idx()} is not the leader of this round
+					miner.set_mine_rewards(0)
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
 
@@ -758,37 +763,34 @@ if __name__=="__main__":
 		comm_round_block_gen_time = []
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
-			unordered_propagated_block_processing_queue = miner.return_unordered_propagated_block_processing_queue()
-			# add self mined block to the processing queue and sort by time
-			this_miner_mined_block = miner.return_mined_block()
-			if this_miner_mined_block:
-				unordered_propagated_block_processing_queue[miner.return_block_generation_time_point()] = this_miner_mined_block
-			ordered_all_blocks_processing_queue = sorted(unordered_propagated_block_processing_queue.items()) # list of tuples (time_point, block)
-
-			if ordered_all_blocks_processing_queue:
-				candidate_PoE_blocks = {}
-				print("select winning block based on PoE... \n")
-				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} is deciding if a valid propagated block arrived before it successfully mines its own block...")
-				for (block_arrival_time, block_to_verify) in ordered_all_blocks_processing_queue:
-					verified_block, verification_time = miner.verify_block(block_to_verify, block_to_verify.return_mined_by())
-					if verified_block:
-						block_mined_by = verified_block.return_mined_by()
-						if block_mined_by == miner.return_idx():
-							print(f"Miner {miner.return_idx()} is adding its own mined block.")
-						else:
-							print(f"Miner {miner.return_idx()} will add a propagated block mined by miner {verified_block.return_mined_by()}.")
-						if miner.online_switcher():
-							miner.add_block(verified_block)
-						else:
-							print(f"Unfortunately, miner {miner.return_idx()} goes offline while adding this block to its chain.")
-						if miner.return_the_added_block():
-							# requesting devices in its associations to download this block
-							miner.request_to_download(verified_block, block_arrival_time + verification_time)
-							break	
+			unconfirmed_candidate_block_info = miner.return_unconfirmed_candidate_block()
+			block_arrival_time = unconfirmed_candidate_block_info[0]
+			unconfirmed_candidate_block = unconfirmed_candidate_block_info[-1]
+			if unconfirmed_candidate_block:
+				verified_block, verification_time = miner.verify_block(unconfirmed_candidate_block, unconfirmed_candidate_block.return_mined_by())
+				if verified_block:
+					if miner.online_switcher():
+						added = miner.add_block(verified_block) #return True if added, False if not added
+					else:
+						print(f"Unfortunately, miner {miner.return_idx()} goes offline while adding this block to its chain.")
+					if added: #or if miner.return_the_added_block():
+						# requesting devices in its associations to download this block
+						miner.request_to_download(verified_block, block_arrival_time + verification_time)
+						break	
 				miner.add_to_round_end_time(block_arrival_time + verification_time)
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} does not receive a propagated block and has not mined its own block yet.")
 
+		for worker_iter in range(len(workers_this_round)):
+			worker = workers_this_round[worker_iter]
+			ordered_downloaded_block_processing_queue = sorted(worker.return_unordered_downloaded_block_processing_queue.items())
+			first_arrived_block_time = ordered_downloaded_block_processing_queue[0][0]
+			first_arrived_block = ordered_downloaded_block_processing_queue[0][1]
+			verified_block, verification_time = device.verify_block(first_arrived_block, first_arrived_block.return_mined_by())
+			if verified_block:
+				worker.add_block(verified_block)
+			worker.set_block_download_time(first_arrived_block_time + verification_time)
+  
 		# CHECK FOR FORKING
 		added_blocks_miner_set = set()
 		for device in devices_list:
@@ -811,11 +813,11 @@ if __name__=="__main__":
 		else:
 			print("No forking event happened.")
 		
-		print(''' Step 9.5 last step - process the added block - 1.collect usable candidate models\n 2.malicious nodes identification\n 3.get rewards\n 4.do local udpates\n This code block is skipped if no valid block was generated in this round''')
+		print(''' Step 9.5 last step - process the added block - 1.collect usable candidate models\n 2.malicious nodes identification\n 3.get rewards\n This code block is skipped if no valid block was generated in this round''')
 		all_devices_round_ends_time = []
 		for device in devices_list:
 			if device.return_the_added_block() and device.online_switcher():
-				# collect usable updated params, malicious nodes identification, get rewards and do local udpates
+				# collect usable updated params, malicious nodes identification, get rewards
 				processing_time = device.process_block(device.return_the_added_block(), log_files_folder_path, conn, conn_cursor) ###
 				device.other_tasks_at_the_end_of_comm_round(comm_round, log_files_folder_path)
 				device.add_to_round_end_time(processing_time)
