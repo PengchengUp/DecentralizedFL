@@ -121,7 +121,7 @@ class Device:
         self.unordered_arrival_time_accepted_worker_validated_candidate_transactions = {}
         self.miner_acception_wait_time = miner_acception_wait_time
         self.miner_accepted_transactions_size_limit = miner_accepted_transactions_size_limit
-        self.mine_rewards = 0
+        self.mined_rewards = 0
         self.unconfirmed_candidate_block = []
         #self.unordered_propagated_block_processing_queue = {} # pure simulation queue and does not exist in real distributed system
         self.mined_block = None
@@ -171,7 +171,7 @@ class Device:
         self.unordered_arrival_time_accepted_worker_validated_candidate_transactions.clear()
         self.final_candidate_transactions_queue_to_mine.clear()
         self.accepted_miner_broadcasted_worker_validated_candidate_transactions.clear()
-        self.mine_rewards = 0
+        #self.mined_rewards = 0
         self.unconfirmed_candidate_block.clear()
         #self.unordered_propagated_block_processing_queue.clear()
         self.mined_block = None
@@ -834,8 +834,8 @@ class Device:
     def sign_block(self, block_to_sign):
         block_to_sign.set_signature(self.sign_msg(block_to_sign.__dict__))
 
-    def set_mined_block(self, mine_rewards):
-        self.mine_rewards = mine_rewards
+    def set_mined_rewards(self, mined_rewards):
+        self.mined_rewards = mined_rewards
 
     def set_mined_block(self, mined_block):
         self.mined_block = mined_block

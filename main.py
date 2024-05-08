@@ -750,7 +750,7 @@ if __name__=="__main__":
 						print(f"Unfortunately, {miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} goes offline while mining a block. This if-successful-mined block is not propagated.")
 				else:
 					#miner {miner.return_idx()} is not the leader of this round
-					miner.set_mine_rewards(0)
+					miner.set_mined_rewards(0)
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
 
