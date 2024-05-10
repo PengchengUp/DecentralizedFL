@@ -740,6 +740,7 @@ if __name__=="__main__":
 							candidate_block.set_hash(current_hash)
 							# record mining time
 							block_generation_time_spent = (time.time() - start_time_point)/miner_computation_power
+							miner.set_block_generation_time_point(block_generation_time_spent)
 							print(f"{miner.return_idx()} - miner mines a block in {block_generation_time_spent} seconds.")
 							# immediately propagate the block
 							miner.propagated_the_block(miner.return_block_generation_time_point(), candidate_block)
@@ -763,9 +764,8 @@ if __name__=="__main__":
 		comm_round_block_gen_time = []
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
-			unconfirmed_candidate_block_info = miner.return_unconfirmed_candidate_block()
-			block_arrival_time = unconfirmed_candidate_block_info[0]
-			unconfirmed_candidate_block = unconfirmed_candidate_block_info[-1]
+			unconfirmed_candidate_block = miner.return_unconfirmed_candidate_block()
+			block_arrival_time = miner.return_unconfirmed_candidate_block_arrival_time()
 			if unconfirmed_candidate_block:
 				verified_block, verification_time = miner.verify_block(unconfirmed_candidate_block, unconfirmed_candidate_block.return_mined_by())
 				if verified_block:

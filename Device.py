@@ -122,7 +122,8 @@ class Device:
         self.miner_acception_wait_time = miner_acception_wait_time
         self.miner_accepted_transactions_size_limit = miner_accepted_transactions_size_limit
         self.mined_rewards = 0
-        self.unconfirmed_candidate_block = []
+        self.unconfirmed_candidate_block = None
+        self.unconfirmed_candidate_block_arrival_time = None
         #self.unordered_propagated_block_processing_queue = {} # pure simulation queue and does not exist in real distributed system
         self.mined_block = None
 
@@ -172,7 +173,8 @@ class Device:
         self.final_candidate_transactions_queue_to_mine.clear()
         self.accepted_miner_broadcasted_worker_validated_candidate_transactions.clear()
         #self.mined_rewards = 0
-        self.unconfirmed_candidate_block.clear()
+        self.unconfirmed_candidate_block = None
+        self.unconfirmed_candidate_block_arrival_time = None
         #self.unordered_propagated_block_processing_queue.clear()
         self.mined_block = None
 
@@ -857,7 +859,8 @@ class Device:
             this_miner_link_speed = self.link_speed
             lower_link_speed = this_miner_link_speed if this_miner_link_speed < source_miner_link_speed else source_miner_link_speed
             transmission_delay = getsizeof(str(propagated_block.__dict__))/lower_link_speed
-            self.unconfirmed_candidate_block += [source_miner_propagating_time_point + transmission_delay, propagated_block]
+            self.unconfirmed_candidate_block = propagated_block
+            self.unconfirmed_candidate_block_arrival_time = source_miner_propagating_time_point + transmission_delay
             #self.unordered_propagated_block_processing_queue[source_miner_propagating_time_point + transmission_delay] = propagated_block
             print(f"{self.role} {self.idx} has accepted a propagated block from miner {source_miner.return_idx()}")
         else:
@@ -868,6 +871,9 @@ class Device:
     
     def return_unconfirmed_candidate_block(self):
         return self.unconfirmed_candidate_block
+    
+    def return_unconfirmed_candidate_block_arrival_time(self):
+        return self.unconfirmed_candidate_block_arrival_time
         
     # def return_unordered_propagated_block_processing_queue(self):
     #     return self.unordered_propagated_block_processing_queue
