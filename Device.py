@@ -99,7 +99,7 @@ class Device:
         self.worker_accepted_broadcasted_miner_candidate = None or []
         self.post_validation_candidate_queue = None or []
         self.unordered_downloaded_block_processing_queue = {}
-
+        self.block_download_time = None
 
         ''' For validators '''   
         self.accuracies_this_round = {}  
@@ -149,6 +149,7 @@ class Device:
         self.worker_accepted_broadcasted_miner_candidate.clear()
         self.post_validation_candidate_queue.clear()
         self.unordered_downloaded_block_processing_queue.clear()
+        self.block_download_time = None
 
         self.received_block_from_miner = None
         self.accuracy_this_round = float('-inf')
@@ -825,8 +826,11 @@ class Device:
     def find_leader_and_max_accuracy_among_valid_candidate_transacitons(self, valid_sig_transacitons):
         for transaciton in valid_sig_transacitons: 
             supported_infos = transaciton['supported_workers']
-            average_accuracy_of_this_candidate_model = sum(info['candidate_model_accuracy'] for info in supported_infos) / len(supported_infos)
-            transaciton['average_accuracy_of_this_candidate_model'] = average_accuracy_of_this_candidate_model
+            if len(supported_infos) != 0:
+                average_accuracy_of_this_candidate_model = sum(info['candidate_model_accuracy'] for info in supported_infos) / len(supported_infos)
+                transaciton['average_accuracy_of_this_candidate_model'] = average_accuracy_of_this_candidate_model
+            else:
+                transaciton['average_accuracy_of_this_candidate_model'] = 0
         sorted_valid_sig_transacitons = sorted(valid_sig_transacitons, key=lambda x: x['average_accuracy_of_this_candidate_model'], reverse=True)
         leader_idx = sorted_valid_sig_transacitons[0]['miner_idx']
         max_candidate_model_accuracy = sorted_valid_sig_transacitons[0]['average_accuracy_of_this_candidate_model']
@@ -946,6 +950,12 @@ class Device:
         self.the_added_block = block_to_add
         return True      
 
+    def set_block_download_time(self, block_download_time):
+        self.block_download_time = block_download_time
+    
+    def return_block_download_time(self):
+        return self.block_download_time
+
     # def request_to_download(self, block_to_download, requesting_time_point):
     #     print(f"miner {self.idx} is requesting its associated devices to download the block it just added to its chain")
     #     devices_in_association = self.miner_associated_worker_set
@@ -1045,7 +1055,7 @@ class Device:
                             if self.idx == validate_worker_record['validation_done_by_worker']:
                                 self_rewards_accumulator += validate_worker_record['validation_reward_for_worker']
                         # give worker update rewards and give miner validate rewards
-                        for local_update_info in aggregate_local_updates_info.items():
+                        for local_update_info in aggregate_local_updates_info:
                             if self.idx == local_update_info["worker_device_idx"]:
                                 self_rewards_accumulator += local_update_info["local_updates_rewards"]
                             if self.idx == local_update_info["validation_done_by"]:

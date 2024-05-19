@@ -783,13 +783,22 @@ if __name__=="__main__":
 
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
-			ordered_downloaded_block_processing_queue = sorted(worker.return_unordered_downloaded_block_processing_queue.items())
-			first_arrived_block_time = ordered_downloaded_block_processing_queue[0][0]
-			first_arrived_block = ordered_downloaded_block_processing_queue[0][1]
-			verified_block, verification_time = device.verify_block(first_arrived_block, first_arrived_block.return_mined_by())
-			if verified_block:
-				worker.add_block(verified_block)
-			worker.set_block_download_time(first_arrived_block_time + verification_time)
+			ordered_downloaded_block_processing_queue = sorted(worker.return_unordered_downloaded_block_processing_queue().items())
+			if ordered_downloaded_block_processing_queue:
+				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} processing the downloaded block...")
+				for (arrival_time, downloaded_block) in ordered_downloaded_block_processing_queue:
+					if worker.online_switcher():
+						verified_block, verification_time = worker.verify_block(downloaded_block, downloaded_block.return_mined_by())
+						if verified_block:
+							worker.add_block(verified_block)
+							worker.set_block_download_time(arrival_time + verification_time)
+							break
+					else:
+						print(f"Unfortunately, worker {worker.return_idx()} goes offline while processing this downloaded block.")
+						worker.set_block_download_time(arrival_time)
+						break
+			else:
+				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} does not receive any block.")
   
 		# CHECK FOR FORKING
 		added_blocks_miner_set = set()
