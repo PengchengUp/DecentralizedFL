@@ -253,6 +253,7 @@ class Device:
             print(f"malicious worker {self.idx} has added noise to its local updated weights before transmitting")
             with open(f"{log_files_folder_path_comm_round}/comm_{comm_round}_variance_of_noises.txt", "a") as file:
                 file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node} noise variances: {self.variance_of_noises}\n")
+
         # record accuracies to find good -vh
         with open(f"{log_files_folder_path_comm_round}/worker_final_local_accuracies_comm_{comm_round}.txt", "a") as file:
             file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node}: {self.validate_model_weights(self.net.state_dict())}\n")
@@ -529,18 +530,23 @@ class Device:
             except:
                 self.aggregate_time = float('inf')
 
-            #TODO malicious miners  
-            # if self.is_malicious:
-            #     self.net.apply(self.malicious_worker_add_noise_to_weights)
-            #     print(f"malicious worker {self.idx} has added noise to its local updated weights before transmitting")
-            #     with open(f"{log_files_folder_path_comm_round}/comm_{comm_round}_variance_of_noises.txt", "a") as file:
-            #         file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node} noise variances: {self.variance_of_noises}\n")
-            # # record accuracies to find good -vh
-            # with open(f"{log_files_folder_path_comm_round}/worker_final_local_accuracies_comm_{comm_round}.txt", "a") as file:
-            #     file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node}: {self.validate_model_weights(self.net.state_dict())}\n")
-            # print(f"Done {local_epochs} epoch(s) and total {self.local_total_epoch} epochs")
+
+            if self.is_malicious:
+                self.net.apply(self.malicious_miner_add_noise_to_weights)
+                print(f"malicious miner {self.idx} has added noise to its candidate global model weights before transmitting")
+                with open(f"{log_files_folder_path_comm_round}/comm_{comm_round}_variance_of_noises.txt", "a") as file:
+                    file.write(f"{self.return_idx()} {self.return_role()}  noise variances: {self.variance_of_noises}\n")
+
         else:
             print(f"There are no available local params for {self.idx} to get candidate model in this comm round.")
+    
+    def malicious_miner_add_noise_to_weights(self, m):
+        with torch.no_grad():
+            if hasattr(m, 'weight'): #checks if the module m has a weight attribute
+                noise = self.noise_variance * torch.randn(m.weight.size())
+                variance_of_noise = torch.var(noise)
+                m.weight.add_(noise.to(self.dev))
+                self.variance_of_noises.append(float(variance_of_noise))
 
     def return_candidate_model_and_signature(self, comm_round):
         self.candidate_model_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_local_updates_info": self.aggregate_local_updates_info, "miner_rsa_pub_key": self.return_rsa_pub_key()}
@@ -613,7 +619,7 @@ class Device:
     def return_final_candidate_validating_queue(self):
         return self.final_candidate_queue_to_validate
        
-    def validate_miner_candidate(self, candidate_to_validate, rewards, log_files_folder_path, comm_round, validate_threshold, malicious_validator_on):
+    def validate_miner_candidate(self, candidate_to_validate, rewards, log_files_folder_path, comm_round, validate_threshold, malicious_worker_on):
         log_files_folder_path_comm_round = f"{log_files_folder_path}/comm_{comm_round}"
         if self.computation_power == 0:
             print(f"worker {self.idx} has computation power 0 and will not be able to validate this candidate in time")
@@ -678,7 +684,7 @@ class Device:
                     else:
                         with open(f"{log_files_folder_path}/true_positive_good_nodes_inside_correct.txt", 'a') as file:
                             file.write(f"miner {miner_candidate_device_idx}'s candidate model accuracy is {accuracy_by_miner_candidate_using_worker_data}, by worker {self.idx} in round {comm_round}\n")
-                if self.is_malicious and malicious_validator_on:
+                if self.is_malicious and malicious_worker_on:
                     old_voting = candidate_to_validate['candidate_direction']
                     candidate_to_validate['candidate_direction'] = not candidate_to_validate['candidate_direction']
                     with open(f"{log_files_folder_path_comm_round}/malicious_validator_log.txt", 'a') as file:

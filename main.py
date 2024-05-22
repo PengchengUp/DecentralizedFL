@@ -89,6 +89,8 @@ parser.add_argument('-mp', '--miner_poe_propagated_block_wait_time', type=float,
 parser.add_argument('-vh', '--validate_threshold', type=float, default=0.5, help="a threshold value of accuracy difference to determine malicious worker") #TODO
 parser.add_argument('-md', '--malicious_updates_discount', type=float, default=0.0, help="do not entirely drop the voted negative worker transaction because that risks the same worker dropping the entire transactions and repeat its accuracy again and again and will be kicked out. Apply a discount factor instead to the false negative worker's updates are by some rate applied so it won't repeat")
 parser.add_argument('-mv', '--malicious_miner_on', type=int, default=0, help="let malicious miner flip voting result")
+parser.add_argument('-mv', '--malicious_worker_on', type=int, default=0, help="let malicious worker flip voting result")
+
 
 
 # distributed system attributes
@@ -184,7 +186,7 @@ if __name__=="__main__":
 		rewards = args["unit_reward"]
 		
 		# 4. get number of roles needed in the network
-		roles_requirement = map(int, args['hard_assign'].split(','))
+		roles_requirement = list(map(int, args['hard_assign'].split(',')))
 		# determine roles to assign
 		try:
 			workers_needed = roles_requirement[0]
@@ -198,7 +200,7 @@ if __name__=="__main__":
 		# 5. check arguments eligibility
 
 		num_devices = args['num_devices']
-		num_malicious = map(int, args['num_malicious'].split(','))
+		num_malicious = list(map(int, args['num_malicious'].split(',')))
 		# num_malicious = args['num_malicious']
 		
 		if num_devices < workers_needed + miners_needed:
@@ -563,7 +565,7 @@ if __name__=="__main__":
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} is validating received miner candidate models...")
 				for (arrival_time, unconfirmmed_candidate) in final_candidate_arrival_queue:
 					if worker.online_switcher():
-						candidate_validation_time, post_validation_candidate = worker.validate_miner_candidate(unconfirmmed_candidate, rewards, log_files_folder_path, comm_round, args['validate_threshold'], args['malicious_miner_on'])  #TODO 
+						candidate_validation_time, post_validation_candidate = worker.validate_miner_candidate(unconfirmmed_candidate, rewards, log_files_folder_path, comm_round, args['validate_threshold'], args['malicious_worker_on'])
 						if candidate_validation_time:
 							worker.add_post_validation_candidate_to_queue((arrival_time + candidate_validation_time, worker.return_link_speed(), post_validation_candidate))
 							print(f"A validation process has been done for the transaction from miner {post_validation_candidate['miner_idx']} by worker {worker.return_idx()}")			
