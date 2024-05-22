@@ -1628,7 +1628,7 @@ class Device:
 
 
 class DevicesInNetwork(object):
-    def __init__(self, data_set_name, is_iid, batch_size, learning_rate, loss_func, opti, num_devices, network_stability, net, dev, knock_out_rounds, lazy_worker_knock_out_rounds, shard_test_data, miner_acception_wait_time, worker_acception_wait_time, miner_accepted_transactions_size_limit, validate_threshold, pow_difficulty, even_link_speed_strength, base_data_transmission_speed, even_computation_power, malicious_updates_discount, num_malicious, noise_variance, check_signature, not_resync_chain):
+    def __init__(self, data_set_name, is_iid, batch_size, learning_rate, loss_func, opti, num_devices, roles_requirement, network_stability, net, dev, knock_out_rounds, lazy_worker_knock_out_rounds, shard_test_data, miner_acception_wait_time, worker_acception_wait_time, miner_accepted_transactions_size_limit, validate_threshold, pow_difficulty, even_link_speed_strength, base_data_transmission_speed, even_computation_power, malicious_updates_discount, num_malicious, noise_variance, check_signature, not_resync_chain):
         self.data_set_name = data_set_name
         self.is_iid = is_iid
         self.batch_size = batch_size
@@ -1636,6 +1636,7 @@ class DevicesInNetwork(object):
         self.loss_func = loss_func
         self.opti = opti
         self.num_devices = num_devices
+        self.roles_requirement = roles_requirement
         self.net = net
         self.dev = dev
         self.devices_set = {}
@@ -1688,9 +1689,13 @@ class DevicesInNetwork(object):
             shard_size_test = mnist_dataset.test_data_size // self.num_devices // 2
             shards_id_test = np.random.permutation(mnist_dataset.test_data_size // shard_size_test)
         
-        malicious_nodes_set = []
-        if self.num_malicious:
-            malicious_nodes_set = random.sample(range(self.num_devices), self.num_malicious)
+        # malicious_nodes_set = []
+        malicious_workers_set = []
+        malicious_miners_set = []
+        if self.num_malicious[0]:
+            malicious_workers_set = random.sample(range(self.roles_requirement[0]), self.num_malicious[0])
+        if self.num_malicious[-1]:
+            malicious_miners_set = random.sample(range(self.roles_requirement[-1]), self.num_malicious[-1])
 
         for i in range(self.num_devices):
             is_malicious = False
@@ -1716,7 +1721,7 @@ class DevicesInNetwork(object):
                 local_test_label = torch.argmax(torch.tensor(local_test_label), dim=1)
                 test_data_loader = DataLoader(TensorDataset(torch.tensor(local_test_data), torch.tensor(local_test_label)), batch_size=100, shuffle=False)
             # assign data to a device and put in the devices set
-            if i in malicious_nodes_set:
+            if i in malicious_workers_set or i in malicious_miners_set:
                 is_malicious = True
                 # add Gussian Noise
 

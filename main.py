@@ -68,7 +68,8 @@ parser.add_argument('-iid', '--IID', type=int, default=0, help='the way to alloc
 parser.add_argument('-max_ncomm', '--max_num_comm', type=int, default=100, help='maximum number of communication rounds, may terminate early if converges')
 parser.add_argument('-nd', '--num_devices', type=int, default=20, help='numer of the devices in the simulation network')
 parser.add_argument('-st', '--shard_test_data', type=int, default=0, help='it is easy to see the global models are consistent across devices when the test dataset is NOT sharded')
-parser.add_argument('-nm', '--num_malicious', type=int, default=0, help="number of malicious nodes in the network. malicious node's data sets will be introduced Gaussian noise")
+# parser.add_argument('-nm', '--num_malicious', type=int, default=0, help="number of malicious nodes in the network. malicious node's data sets will be introduced Gaussian noise")
+parser.add_argument('-nm', '--num_malicious', type=str, default='0,0', help="number of malicious nodes in the network. order by worker and miner. e.g. 4,1 assign 4 malicious workers and 1 malicious miners.")
 parser.add_argument('-nv', '--noise_variance', type=int, default=1, help="noise variance level of the injected Gaussian Noise")
 parser.add_argument('-le', '--default_local_epochs', type=int, default=5, help='local train epoch. Train local model by this same num of epochs for each worker, if -mt is not specified')
 
@@ -148,6 +149,8 @@ if __name__=="__main__":
 			# get mining consensus
 			if line.startswith('--pow_difficulty'):
 				mining_consensus = 'PoW' if int(line.split(" ")[-1]) else 'PoS'
+			if line.startswith('--num_malicious'):
+				num_malicious = line.split(" ")[-1].split(',')
 		# determine roles to assign
 		try:
 			workers_needed = int(roles_requirement[0])
@@ -181,21 +184,22 @@ if __name__=="__main__":
 		rewards = args["unit_reward"]
 		
 		# 4. get number of roles needed in the network
-		roles_requirement = args['hard_assign'].split(',')
+		roles_requirement = map(int, args['hard_assign'].split(','))
 		# determine roles to assign
 		try:
-			workers_needed = int(roles_requirement[0])
+			workers_needed = roles_requirement[0]
 		except:
 			workers_needed = 1
 		try:
-			miners_needed = int(roles_requirement[-1])
+			miners_needed = roles_requirement[-1]
 		except:
 			miners_needed = 1
 
 		# 5. check arguments eligibility
 
 		num_devices = args['num_devices']
-		num_malicious = args['num_malicious']
+		num_malicious = map(int, args['num_malicious'].split(','))
+		# num_malicious = args['num_malicious']
 		
 		if num_devices < workers_needed + miners_needed:
 			sys.exit("ERROR: Roles assigned to the devices exceed the maximum number of allowed devices in the network.")
@@ -205,10 +209,10 @@ if __name__=="__main__":
 
 		
 		if num_malicious:
-			if num_malicious > num_devices:
+			if (num_malicious[0]+num_malicious[-1]) > num_devices:
 				sys.exit("ERROR: The number of malicious nodes cannot exceed the total number of devices set in this network")
 			else:
-				print(f"Malicious nodes vs total devices set to {num_malicious}/{num_devices} = {(num_malicious/num_devices)*100:.2f}%")
+				print(f"Malicious workers rate: {(num_malicious[0]/workers_needed)*100:.2f}%. Malicious miners rate: {(num_malicious[-1]/miners_needed)*100:.2f}%")
 
 		# 6. create neural net based on the input model name
 		net = None
@@ -228,7 +232,7 @@ if __name__=="__main__":
 		loss_func = F.cross_entropy
 
 		# 9. create devices in the network
-		devices_in_network = DevicesInNetwork(data_set_name=args['dataset'], is_iid=args['IID'], batch_size = args['batchsize'], learning_rate =  args['learning_rate'], loss_func = loss_func, opti = args['optimizer'], num_devices=num_devices, network_stability=args['network_stability'], net=net, dev=dev, knock_out_rounds=args['knock_out_rounds'], lazy_worker_knock_out_rounds=args['lazy_worker_knock_out_rounds'], shard_test_data=args['shard_test_data'], miner_acception_wait_time=args['miner_acception_wait_time'], worker_acception_wait_time=args['worker_acception_wait_time'], miner_accepted_transactions_size_limit=args['miner_accepted_transactions_size_limit'], validate_threshold=args['validate_threshold'], pow_difficulty=args['pow_difficulty'], even_link_speed_strength=args['even_link_speed_strength'], base_data_transmission_speed=args['base_data_transmission_speed'], even_computation_power=args['even_computation_power'], malicious_updates_discount=args['malicious_updates_discount'], num_malicious=num_malicious, noise_variance=args['noise_variance'], check_signature=args['check_signature'], not_resync_chain=args['destroy_tx_in_block'])
+		devices_in_network = DevicesInNetwork(data_set_name=args['dataset'], is_iid=args['IID'], batch_size = args['batchsize'], learning_rate =  args['learning_rate'], loss_func = loss_func, opti = args['optimizer'], num_devices=num_devices, roles_requirement=roles_requirement, network_stability=args['network_stability'], net=net, dev=dev, knock_out_rounds=args['knock_out_rounds'], lazy_worker_knock_out_rounds=args['lazy_worker_knock_out_rounds'], shard_test_data=args['shard_test_data'], miner_acception_wait_time=args['miner_acception_wait_time'], worker_acception_wait_time=args['worker_acception_wait_time'], miner_accepted_transactions_size_limit=args['miner_accepted_transactions_size_limit'], validate_threshold=args['validate_threshold'], pow_difficulty=args['pow_difficulty'], even_link_speed_strength=args['even_link_speed_strength'], base_data_transmission_speed=args['base_data_transmission_speed'], even_computation_power=args['even_computation_power'], malicious_updates_discount=args['malicious_updates_discount'], num_malicious=num_malicious, noise_variance=args['noise_variance'], check_signature=args['check_signature'], not_resync_chain=args['destroy_tx_in_block'])
 		del net
 		devices_list = list(devices_in_network.devices_set.values())
 
