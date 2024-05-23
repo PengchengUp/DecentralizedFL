@@ -1673,27 +1673,29 @@ class DevicesInNetwork(object):
     # distribute the dataset evenly to the devices
     def data_set_balanced_allocation(self):
         # read dataset
-        mnist_dataset = DatasetLoad(self.data_set_name, self.is_iid)
+        dataset = DatasetLoad(self.data_set_name, self.is_iid)
         
         # perpare training data
-        train_data = mnist_dataset.train_data
-        train_label = mnist_dataset.train_label
+        train_data = dataset.train_data
+        train_label = dataset.train_label
         # shard dataset and distribute among devices
         # shard train
-        shard_size_train = mnist_dataset.train_data_size // self.num_devices // 2
-        shards_id_train = np.random.permutation(mnist_dataset.train_data_size // shard_size_train) #shuffles the indices of the shards randomly
+        shard_size_train = dataset.train_data_size // self.num_devices // 2
+        shards_id_train = np.random.permutation(dataset.train_data_size // shard_size_train) #shuffles the indices of the shards randomly
 
         # perpare test data
         if not self.shard_test_data:
-            test_data = torch.tensor(mnist_dataset.test_data)
-            test_label = torch.argmax(torch.tensor(mnist_dataset.test_label), dim=1)
+            test_data = torch.tensor(dataset.test_data)
+            test_label = torch.tensor(dataset.test_label)
+            if test_label.dim() > 1:
+                test_label = torch.argmax(torch.tensor(dataset.test_label), dim=1)
             test_data_loader = DataLoader(TensorDataset(test_data, test_label), batch_size=100, shuffle=False)
         else:
-            test_data = mnist_dataset.test_data
-            test_label = mnist_dataset.test_label
+            test_data = dataset.test_data
+            test_label = dataset.test_label
             # shard test
-            shard_size_test = mnist_dataset.test_data_size // self.num_devices // 2
-            shards_id_test = np.random.permutation(mnist_dataset.test_data_size // shard_size_test)
+            shard_size_test = dataset.test_data_size // self.num_devices // 2
+            shards_id_test = np.random.permutation(dataset.test_data_size // shard_size_test)
         
         # malicious_nodes_set = []
         malicious_workers_set = []

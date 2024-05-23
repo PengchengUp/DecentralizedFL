@@ -3,7 +3,9 @@ import gzip
 import os
 import platform
 import pickle
-
+import torch
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
 
 class DatasetLoad(object):
 	def __init__(self, dataSetName, isIID):
@@ -19,6 +21,10 @@ class DatasetLoad(object):
 
 		if self.name == 'mnist':
 			self.mnistDataSetConstruct(isIID)
+		elif self.name == 'cifar10':
+			self.cifar10DataSetConstruct(isIID)
+		elif self.name == 'cifar100':
+			self.cifar100DataSetConstruct(isIID)
 		else:
 			pass
 
@@ -67,11 +73,98 @@ class DatasetLoad(object):
 			self.train_data = train_images[order]
 			self.train_label = train_labels[order]
 
+		self.test_data = test_images
+		self.test_label = test_labels
 
+	def cifar10DataSetConstruct(self, isIID):
+		# Define the transform to normalize the data
+		transform = transforms.Compose([
+			transforms.ToTensor(),
+			transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+		])
+
+		# Load CIFAR-10 dataset
+		data_dir = 'data/CIFAR10'
+		train_dataset = datasets.CIFAR10(root=data_dir, train=True, download=True, transform=transform)
+		test_dataset = datasets.CIFAR10(root=data_dir, train=False, download=True, transform=transform)
+
+		# Extract images and labels
+		train_images = train_dataset.data
+		train_labels = np.array(train_dataset.targets)
+		test_images = test_dataset.data
+		test_labels = np.array(test_dataset.targets)
+
+		# 50000 training data points, 10000 test data points
+		assert train_images.shape[0] == train_labels.shape[0]
+		assert test_images.shape[0] == test_labels.shape[0]
+
+		self.train_data_size = train_images.shape[0]
+		self.test_data_size = test_images.shape[0]
+
+		# Reshape images to (N, D) where D = 32*32*3
+		train_images = train_images.reshape(train_images.shape[0], -1)
+		test_images = test_images.reshape(test_images.shape[0], -1)
+
+		train_images = train_images.astype(np.float32) / 255.0
+		test_images = test_images.astype(np.float32) / 255.0
+
+		if isIID:
+			order = np.arange(self.train_data_size)
+			np.random.shuffle(order)
+			self.train_data = train_images[order]
+			self.train_label = train_labels[order]
+		else:
+			order = np.argsort(train_labels)
+			self.train_data = train_images[order]
+			self.train_label = train_labels[order]
 
 		self.test_data = test_images
 		self.test_label = test_labels
 
+	def cifar100DataSetConstruct(self, isIID):
+		# Define the transform to normalize the data
+		transform = transforms.Compose([
+			transforms.ToTensor(),
+			transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
+		])
+
+		# Load CIFAR-100 dataset
+		data_dir = 'data/CIFAR100'
+		train_dataset = datasets.CIFAR100(root=data_dir, train=True, download=True, transform=transform)
+		test_dataset = datasets.CIFAR100(root=data_dir, train=False, download=True, transform=transform)
+
+		# Extract images and labels
+		train_images = train_dataset.data
+		train_labels = np.array(train_dataset.targets)
+		test_images = test_dataset.data
+		test_labels = np.array(test_dataset.targets)
+
+		# 50000 training data points, 10000 test data points
+		assert train_images.shape[0] == train_labels.shape[0]
+		assert test_images.shape[0] == test_labels.shape[0]
+
+		self.train_data_size = train_images.shape[0]
+		self.test_data_size = test_images.shape[0]
+
+		# Reshape images to (N, D) where D = 32*32*3
+		train_images = train_images.reshape(train_images.shape[0], -1)
+		test_images = test_images.reshape(test_images.shape[0], -1)
+
+		train_images = train_images.astype(np.float32) / 255.0
+		test_images = test_images.astype(np.float32) / 255.0
+
+		if isIID:
+			order = np.arange(self.train_data_size)
+			np.random.shuffle(order)
+			self.train_data = train_images[order]
+			self.train_label = train_labels[order]
+		else:
+			order = np.argsort(train_labels)
+			self.train_data = train_images[order]
+			self.train_label = train_labels[order]
+
+		self.test_data = test_images
+		self.test_label = test_labels
 
 def _read32(bytestream):
 	dt = np.dtype(np.uint32).newbyteorder('>')
