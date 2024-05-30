@@ -1689,12 +1689,14 @@ class DevicesInNetwork(object):
             test_label = torch.tensor(dataset.test_label)
             if test_label.dim() > 1:
                 test_label = torch.argmax(torch.tensor(dataset.test_label), dim=1)
+            print(f"Test data shape: {dataset.test_data.shape}")
+            print(f"Test labels shape: {dataset.test_label.shape}")
             test_data_loader = DataLoader(TensorDataset(test_data, test_label), batch_size=100, shuffle=False)
         else:
             test_data = dataset.test_data
             test_label = dataset.test_label
             # shard test
-            shard_size_test = dataset.test_data_size // self.num_devices // 2
+            shard_size_test = dataset.test_data_size // self.num_devices // 2  
             shards_id_test = np.random.permutation(dataset.test_data_size // shard_size_test)
         
         # malicious_nodes_set = []
@@ -1715,8 +1717,11 @@ class DevicesInNetwork(object):
             data_shards2 = train_data[shards_id_train2 * shard_size_train: shards_id_train2 * shard_size_train + shard_size_train]
             label_shards1 = train_label[shards_id_train1 * shard_size_train: shards_id_train1 * shard_size_train + shard_size_train]
             label_shards2 = train_label[shards_id_train2 * shard_size_train: shards_id_train2 * shard_size_train + shard_size_train]
-            local_train_data, local_train_label = np.vstack((data_shards1, data_shards2)), np.vstack((label_shards1, label_shards2))
-            local_train_label = np.argmax(local_train_label, axis=1)
+            local_train_data, local_train_label = np.vstack((data_shards1, data_shards2)), np.concatenate((label_shards1, label_shards2))
+            if test_label.dim() > 1:
+                local_train_label = np.argmax(local_train_label, axis=1)
+            print(f"local_train_data shape: {local_train_data.shape}")
+            print(f"local_train_label shape: {local_train_label.shape}")
             # distribute test data
             if self.shard_test_data:
                 shards_id_test1 = shards_id_test[i * 2]
@@ -1727,6 +1732,8 @@ class DevicesInNetwork(object):
                 label_shards2 = test_label[shards_id_test2 * shard_size_test: shards_id_test2 * shard_size_test + shard_size_test]
                 local_test_data, local_test_label = np.vstack((data_shards1, data_shards2)), np.vstack((label_shards1, label_shards2))
                 local_test_label = torch.argmax(torch.tensor(local_test_label), dim=1)
+                print(f"Local Test data shape: {dataset.test_data.shape}")
+                print(f"Local Test labels shape: {dataset.test_label.shape}")
                 test_data_loader = DataLoader(TensorDataset(torch.tensor(local_test_data), torch.tensor(local_test_label)), batch_size=100, shuffle=False)
             # assign data to a device and put in the devices set
             if i in malicious_workers_set or i in malicious_miners_set:

@@ -34,7 +34,7 @@ from pathlib import Path
 import shutil
 import torch
 import torch.nn.functional as F
-from Models import Mnist_2NN, Mnist_CNN
+from Models import Mnist_2NN, Mnist_CNN, Cifar10_CNN, Cifar10_CNN_Simplified, Cifar100_CNN, Cifar100_ResNet
 from Device import Device, DevicesInNetwork
 from Block import Block
 from Blockchain import Blockchain
@@ -88,8 +88,8 @@ parser.add_argument('-ml', '--miner_accepted_transactions_size_limit', type=floa
 parser.add_argument('-mp', '--miner_poe_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoE")
 parser.add_argument('-vh', '--validate_threshold', type=float, default=0.5, help="a threshold value of accuracy difference to determine malicious worker") #TODO
 parser.add_argument('-md', '--malicious_updates_discount', type=float, default=0.0, help="do not entirely drop the voted negative worker transaction because that risks the same worker dropping the entire transactions and repeat its accuracy again and again and will be kicked out. Apply a discount factor instead to the false negative worker's updates are by some rate applied so it won't repeat")
-parser.add_argument('-mv', '--malicious_miner_on', type=int, default=0, help="let malicious miner flip voting result")
-parser.add_argument('-mv', '--malicious_worker_on', type=int, default=0, help="let malicious worker flip voting result")
+parser.add_argument('-mmo', '--malicious_miner_on', type=int, default=0, help="let malicious miner flip voting result")
+parser.add_argument('-mwo', '--malicious_worker_on', type=int, default=0, help="let malicious worker flip voting result")
 
 
 
@@ -222,6 +222,14 @@ if __name__=="__main__":
 			net = Mnist_2NN()
 		elif args['model_name'] == 'mnist_cnn':
 			net = Mnist_CNN()
+		elif args['model_name'] == 'cifar10_cnn':
+			net = Cifar10_CNN_Simplified()#Cifar10_CNN()
+		elif args['model_name'] == 'cifar100_cnn':
+			net = Cifar100_CNN()
+		elif args['model_name'] == 'cifar100_resnet':
+			net = Cifar100_ResNet()
+		else:
+			sys.exit("ERROR: Invalid model name. Please choose from mnist_2nn, mnist_cnn, cifar10_cnn, cifar100_resnet.")
 
 		# 7. assign GPU(s) if available to the net, otherwise CPU
 		# os.environ['CUDA_VISIBLE_DEVICES'] = args['gpu']
