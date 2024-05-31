@@ -44,7 +44,7 @@ class Device:
         else:
             self.link_speed = random.random() * base_data_transmission_speed
         self.devices_dict = None
-        self.aio = False
+        self.aio = False #all in one
         ''' simulating hardware equipment strength, such as good processors and RAM capacity. Following recorded times will be shrunk by this value of times
         # for workers, its update time
         # for miners, its PoW time
@@ -90,6 +90,7 @@ class Device:
         self.local_updates_rewards_per_transaction = 0
         self.received_block_from_miner = None
         self.accuracy_this_round = float('-inf')
+        self.local_accuracy = 0
         self.worker_associated_miner_set = set()
         self.local_update_time = None
         self.local_total_epoch = 0
@@ -142,6 +143,7 @@ class Device:
         self.local_updates_dict.clear()
         self.local_updates_rewards_per_transaction = 0
         self.local_total_epoch = 0
+        self.local_accuracy = 0
         self.variance_of_noises.clear()
         self.worker_associated_miner_set.clear()  
         self.unordered_arrival_time_accepted_miner_candidate.clear()
@@ -259,6 +261,8 @@ class Device:
             file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node}: {self.validate_model_weights(self.net.state_dict())}\n")
         print(f"Done {local_epochs} epoch(s) and total {self.local_total_epoch} epochs")
         self.local_train_parameters = self.net.state_dict()
+        self.local_accuracy = self.validate_model_weights(self.net.state_dict())
+
     
     def return_local_updates_and_signature(self, comm_round):
         # local_total_accumulated_epochs_this_round also stands for the lastest_epoch_seq for this transaction(local params are calculated after this amount of local epochs in this round)
@@ -660,7 +664,7 @@ class Device:
                 with open(f"{log_files_folder_path_comm_round}/worker_{self.idx}_{is_malicious_worker}_validation_records_comm_{comm_round}.txt", "a") as file:
                     is_malicious_node = "M" if self.devices_dict[miner_candidate_device_idx].return_is_malicious() else "B"
                     file.write(f"{accuracy_by_miner_candidate_using_worker_data}: worker {self.return_idx()} {is_malicious_worker} in round {comm_round} evluating miner {miner_candidate_device_idx},  {miner_candidate_device_idx}_maliciousness: {is_malicious_node}\n")
-                if accuracy_by_miner_candidate_using_worker_data < validate_threshold:
+                if accuracy_by_miner_candidate_using_worker_data - self.local_accuracy < validate_threshold * -1:
                     candidate_to_validate['candidate_direction'] = False
                     print(f"NOTE: miner {miner_candidate_device_idx}'s candidate model is deemed as suspiciously malicious by worker {self.idx}")
                     # is it right?

@@ -34,7 +34,7 @@ from pathlib import Path
 import shutil
 import torch
 import torch.nn.functional as F
-from Models import Mnist_2NN, Mnist_CNN, Cifar10_CNN, Cifar10_CNN_Simplified, Cifar100_CNN, Cifar100_ResNet
+from Models import Mnist_2NN, Mnist_CNN, Mnist_CNN_Simplified, Cifar10_CNN, Cifar10_CNN_Simplified, Cifar100_CNN, Cifar100_ResNet
 from Device import Device, DevicesInNetwork
 from Block import Block
 from Blockchain import Blockchain
@@ -221,7 +221,7 @@ if __name__=="__main__":
 		if args['model_name'] == 'mnist_2nn':
 			net = Mnist_2NN()
 		elif args['model_name'] == 'mnist_cnn':
-			net = Mnist_CNN()
+			net = Mnist_CNN_Simplified()#Mnist_CNN()
 		elif args['model_name'] == 'cifar10_cnn':
 			net = Cifar10_CNN_Simplified()#Cifar10_CNN()
 		elif args['model_name'] == 'cifar100_cnn':
