@@ -6,6 +6,7 @@ import pickle
 import urllib.request
 import tarfile
 import torch
+import random
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
@@ -66,14 +67,15 @@ class DatasetLoad(object):
 
 		if isIID:
 			order = np.arange(self.train_data_size)
+			random.seed(7)
 			np.random.shuffle(order)
 			self.train_data = train_images[order]
 			self.train_label = train_labels[order]
 		else:
-			labels = np.argmax(train_labels, axis=1)
+			labels = np.array(train_labels)
 			order = np.argsort(labels)
 			self.train_data = train_images[order]
-			self.train_label = train_labels[order]
+			self.train_label = np.array(train_labels)[order]
 
 		self.test_data = test_images
 		self.test_label = test_labels
@@ -134,6 +136,7 @@ class DatasetLoad(object):
 
 		if isIID:
 			order = np.arange(self.train_data_size)
+			random.seed(7)
 			np.random.shuffle(order)
 			self.train_data = train_images[order]
 			self.train_label = train_labels[order]
@@ -235,7 +238,7 @@ def extract_labels(filename):
 		num_items = _read32(bytestream)
 		buf = bytestream.read(num_items)
 		labels = np.frombuffer(buf, dtype=np.uint8)
-		return dense_to_one_hot(labels)
+		return labels#dense_to_one_hot(labels)
 
 
 if __name__=="__main__":

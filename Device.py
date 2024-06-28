@@ -201,7 +201,7 @@ class Device:
                     miners_in_peer_list.add(peer)
         if not miners_in_peer_list:
             return False
-        #random.seed(42)
+        random.seed(7)
         associate_miner_number = random.randint(1, len(miners_in_peer_list)) #TODO:优化连接的miner数量以最小化通信开销
         self.worker_associated_miner_set = random.sample(miners_in_peer_list, associate_miner_number)
         print(f"{self.role} {self.idx} associated with {len(self.worker_associated_miner_set)} miner(s): {[miner.return_idx() for miner in self.worker_associated_miner_set]}")
@@ -281,7 +281,13 @@ class Device:
             for data, label in self.test_dl:
                 data, label = data.to(self.dev), label.to(self.dev)
                 preds = self.net(data)
-                preds = torch.argmax(preds, dim=1)
+                # print(f"preds shape:", preds.shape)
+                # print(f"preds type:", preds.dtype)
+                preds = torch.argmax(preds, dim=1).long()
+                # print(f"preds shape after:", preds.shape)
+                # print(f"preds type after:", preds.dtype)
+                # print(f"label shape:", label.shape)
+                # print(f"label type:", label.dtype)
                 sum_accu += (preds == label).float().mean()
                 num += 1            
             return sum_accu / num
@@ -389,7 +395,7 @@ class Device:
                 for data, label in self.test_dl:
                     data, label = data.to(self.dev), label.to(self.dev)
                     preds = updated_net(data)
-                    preds = torch.argmax(preds, dim=1)
+                    preds = torch.argmax(preds, dim=1).long()
                     sum_accu += (preds == label).float().mean()
                     num += 1
             self.miner_local_accuracy = sum_accu / num
@@ -1682,9 +1688,11 @@ class DevicesInNetwork(object):
         # perpare training data
         train_data = dataset.train_data
         train_label = dataset.train_label
+
         # shard dataset and distribute among devices
         # shard train
         shard_size_train = dataset.train_data_size // self.num_devices // 2
+        random.seed(7)
         shards_id_train = np.random.permutation(dataset.train_data_size // shard_size_train) #shuffles the indices of the shards randomly
 
         # perpare test data
@@ -1695,20 +1703,23 @@ class DevicesInNetwork(object):
                 test_label = torch.argmax(torch.tensor(dataset.test_label), dim=1)
             print(f"Test data shape: {dataset.test_data.shape}")
             print(f"Test labels shape: {dataset.test_label.shape}")
-            test_data_loader = DataLoader(TensorDataset(test_data, test_label), batch_size=100, shuffle=False)
+            test_data_loader = DataLoader(TensorDataset(test_data, test_label.long()), batch_size=100, shuffle=False)
         else:
             test_data = dataset.test_data
             test_label = dataset.test_label
             # shard test
             shard_size_test = dataset.test_data_size // self.num_devices // 2  
+            random.seed(7)
             shards_id_test = np.random.permutation(dataset.test_data_size // shard_size_test)
         
         # malicious_nodes_set = []
         malicious_workers_set = []
         malicious_miners_set = []
-        if self.num_malicious[0]:
+        if self.num_malicious[0]>0:
+            random.seed(7)
             malicious_workers_set = random.sample(range(self.roles_requirement[0]), self.num_malicious[0])
-        if self.num_malicious[-1]:
+        if self.num_malicious[-1]>0:
+            random.seed(7)
             malicious_miners_set = random.sample(range(self.roles_requirement[-1]), self.num_malicious[-1])
 
         for i in range(self.num_devices):
@@ -1738,15 +1749,22 @@ class DevicesInNetwork(object):
                 local_test_label = torch.argmax(torch.tensor(local_test_label), dim=1)
                 print(f"Local Test data shape: {dataset.test_data.shape}")
                 print(f"Local Test labels shape: {dataset.test_label.shape}")
-                test_data_loader = DataLoader(TensorDataset(torch.tensor(local_test_data), torch.tensor(local_test_label)), batch_size=100, shuffle=False)
+                test_data_loader = DataLoader(TensorDataset(torch.tensor(local_test_data), torch.tensor(local_test_label, dtype=torch.int64)), batch_size=100, shuffle=False)
             # assign data to a device and put in the devices set
             if i in malicious_workers_set or i in malicious_miners_set:
                 is_malicious = True
                 # add Gussian Noise
 
             device_idx = f'device_{i+1}'
-            a_device = Device(device_idx, TensorDataset(torch.tensor(local_train_data), torch.tensor(local_train_label)), test_data_loader, self.batch_size, self.learning_rate, self.loss_func, self.opti, self.default_network_stability, self.net, self.dev, self.miner_acception_wait_time, self.worker_acception_wait_time, self.miner_accepted_transactions_size_limit, self.validate_threshold, self.pow_difficulty, self.even_link_speed_strength, self.base_data_transmission_speed, self.even_computation_power, is_malicious, self.noise_variance, self.check_signature, self.not_resync_chain, self.malicious_updates_discount, self.knock_out_rounds, self.lazy_worker_knock_out_rounds)
+            a_device = Device(device_idx, TensorDataset(torch.tensor(local_train_data), torch.tensor(local_train_label, dtype=torch.int64)), test_data_loader, self.batch_size, self.learning_rate, self.loss_func, self.opti, self.default_network_stability, self.net, self.dev, self.miner_acception_wait_time, self.worker_acception_wait_time, self.miner_accepted_transactions_size_limit, self.validate_threshold, self.pow_difficulty, self.even_link_speed_strength, self.base_data_transmission_speed, self.even_computation_power, is_malicious, self.noise_variance, self.check_signature, self.not_resync_chain, self.malicious_updates_discount, self.knock_out_rounds, self.lazy_worker_knock_out_rounds)
             # device index starts from 1
+            # # 迭代数据集
+            # for data, label in a_device.train_dl:
+            #     print("Label dtype before conversion:", label.dtype) #Label dtype before conversion: torch.float64
+            #     print("Label shape:", label.shape)#Label shape: torch.Size([10, 10])
+            #     label = label.long()
+            #     print("Label dtype after conversion:", label.dtype) # Label dtype after conversion: torch.int64
+            #     break  # 这里只迭代一次用于调试
             self.devices_set[device_idx] = a_device
             print(f"Sharding dataset to {device_idx} done.")
         print(f"Sharding dataset done!")

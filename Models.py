@@ -40,7 +40,7 @@ class Mnist_CNN(nn.Module):
 
 class Mnist_CNN_Simplified(nn.Module):
     def __init__(self):
-        super(Mnist_CNN_Simplified, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=5, stride=1, padding=2)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=5, stride=1, padding=2)
@@ -81,7 +81,7 @@ class Cifar10_CNN(nn.Module):
     
 class Cifar10_CNN_Simplified(nn.Module):
     def __init__(self):
-        super(Cifar10_CNN_Simplified, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)

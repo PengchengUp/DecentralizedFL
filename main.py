@@ -71,7 +71,7 @@ parser.add_argument('-st', '--shard_test_data', type=int, default=0, help='it is
 # parser.add_argument('-nm', '--num_malicious', type=int, default=0, help="number of malicious nodes in the network. malicious node's data sets will be introduced Gaussian noise")
 parser.add_argument('-nm', '--num_malicious', type=str, default='0,0', help="number of malicious nodes in the network. order by worker and miner. e.g. 4,1 assign 4 malicious workers and 1 malicious miners.")
 parser.add_argument('-nv', '--noise_variance', type=int, default=1, help="noise variance level of the injected Gaussian Noise")
-parser.add_argument('-le', '--default_local_epochs', type=int, default=5, help='local train epoch. Train local model by this same num of epochs for each worker, if -mt is not specified')
+parser.add_argument('-le', '--default_local_epochs', type=int, default=2, help='local train epoch. Train local model by this same num of epochs for each worker, if -mt is not specified')
 
 # blockchain system consensus attributes
 parser.add_argument('-ur', '--unit_reward', type=int, default=1, help='unit reward for providing data, verification of signature, validation and so forth')
@@ -86,7 +86,7 @@ parser.add_argument('-mt', '--miner_acception_wait_time', type=float, default=fl
 parser.add_argument('-wt', '--worker_acception_wait_time', type=float, default=float("inf"), help="default time window for workers to accept transactions, in seconds. 0 means no time limit, and each device will just perform same amount(-le) of epochs per round like in FedAvg paper")
 parser.add_argument('-ml', '--miner_accepted_transactions_size_limit', type=float, default=0.0, help="no further transactions will be accepted by miner after this limit. 0 means no size limit. either this or -mt has to be specified, or both. This param determines the final block_size")
 parser.add_argument('-mp', '--miner_poe_propagated_block_wait_time', type=float, default=float("inf"), help="this wait time is counted from the beginning of the comm round, used to simulate forking events in PoE")
-parser.add_argument('-vh', '--validate_threshold', type=float, default=0.5, help="a threshold value of accuracy difference to determine malicious worker") #TODO
+parser.add_argument('-vh', '--validate_threshold', type=float, default=0.05, help="a threshold value of accuracy difference to determine malicious worker") #TODO
 parser.add_argument('-md', '--malicious_updates_discount', type=float, default=0.0, help="do not entirely drop the voted negative worker transaction because that risks the same worker dropping the entire transactions and repeat its accuracy again and again and will be kicked out. Apply a discount factor instead to the false negative worker's updates are by some rate applied so it won't repeat")
 parser.add_argument('-mmo', '--malicious_miner_on', type=int, default=0, help="let malicious miner flip voting result")
 parser.add_argument('-mwo', '--malicious_worker_on', type=int, default=0, help="let malicious worker flip voting result")
@@ -221,7 +221,7 @@ if __name__=="__main__":
 		if args['model_name'] == 'mnist_2nn':
 			net = Mnist_2NN()
 		elif args['model_name'] == 'mnist_cnn':
-			net = Mnist_CNN_Simplified()#Mnist_CNN()
+			net = Mnist_CNN()#Mnist_CNN_Simplified()
 		elif args['model_name'] == 'cifar10_cnn':
 			net = Cifar10_CNN_Simplified()#Cifar10_CNN()
 		elif args['model_name'] == 'cifar100_cnn':
