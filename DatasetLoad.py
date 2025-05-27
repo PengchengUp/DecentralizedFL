@@ -149,6 +149,76 @@ class DatasetLoad(object):
 		self.test_data = test_images
 		self.test_label = test_labels
 
+	def cifar100DataSetConstruct(self, isIID):
+		data_dir = 'data/CIFAR-100'
+
+		if not os.path.exists(data_dir):
+			os.makedirs(data_dir)
+
+		cifar100_url = 'https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz'
+		filename = cifar100_url.split('/')[-1]
+		filepath = os.path.join(data_dir, filename)
+
+		if not os.path.exists(filepath):
+			print('Downloading CIFAR-100 dataset...')
+			urllib.request.urlretrieve(cifar100_url, filepath)
+			print('Download complete.')
+
+		# Extract the dataset if not already extracted
+		if not os.path.exists(os.path.join(data_dir, 'cifar-100-python')):
+			print('Extracting CIFAR-100 dataset...')
+			with tarfile.open(filepath, 'r:gz') as tar:
+				tar.extractall(path=data_dir)
+			print('Extraction complete.')
+
+		def unpickle(file):
+			with open(file, 'rb') as fo:
+				dict = pickle.load(fo, encoding='bytes')
+			return dict
+
+		# Load training data
+		train_batch = unpickle(os.path.join(data_dir, 'cifar-100-python', 'train'))
+		train_images = train_batch[b'data']
+		train_labels = np.array(train_batch[b'fine_labels'])  # Using fine labels
+
+		# Load test data
+		test_batch = unpickle(os.path.join(data_dir, 'cifar-100-python', 'test'))
+		test_images = test_batch[b'data']
+		test_labels = np.array(test_batch[b'fine_labels'])  # Using fine labels
+
+		# # Reshape and normalize training images
+		# train_images = train_images.reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
+		# train_images = train_images.astype(np.float32) / 255.0
+
+		# # Reshape and normalize test images
+		# test_images = test_images.reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
+		# test_images = test_images.astype(np.float32) / 255.0
+		
+				# 修改后的正确代码（删除transpose操作）
+		train_images = train_images.reshape(-1, 3, 32, 32)  # 保持 [N, C, H, W]
+		train_images = train_images.astype(np.float32) / 255.0
+
+		test_images = test_images.reshape(-1, 3, 32, 32)    # 保持 [N, C, H, W]
+		test_images = test_images.astype(np.float32) / 255.0
+
+		self.train_data_size = train_images.shape[0]
+		self.test_data_size = test_images.shape[0]
+
+		if isIID:
+			order = np.arange(self.train_data_size)
+			random.seed(7)
+			np.random.shuffle(order)
+			self.train_data = train_images[order]
+			self.train_label = train_labels[order]
+		else:
+			labels = np.array(train_labels)
+			order = np.argsort(labels)
+			self.train_data = train_images[order]
+			self.train_label = np.array(train_labels)[order]
+
+		self.test_data = test_images
+		self.test_label = test_labels
+
 	# def cifar10DataSetConstruct(self, isIID):
 	# 	# Define the transform to normalize the data
 	# 	transform = transforms.Compose([

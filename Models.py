@@ -101,7 +101,7 @@ class Cifar10_CNN_Simplified(nn.Module):
 	
 class Cifar100_CNN(nn.Module):
     def __init__(self):
-        super(Cifar100_CNN, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
@@ -119,7 +119,60 @@ class Cifar100_CNN(nn.Module):
         x = x.view(-1, 128 * 4 * 4)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
-        return x	
+        return x
+
+# class Cifar100_CNN_Simplified(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
+#         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+#         self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+#         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+#         self.fc1 = nn.Linear(64 * 4 * 4, 128)
+#         self.fc2 = nn.Linear(128, 100)
+
+#     def forward(self, x):
+#         x = F.relu(self.conv1(x))
+#         x = self.pool(x)
+#         x = F.relu(self.conv2(x))
+#         x = self.pool(x)
+#         x = F.relu(self.conv3(x))
+#         x = self.pool(x)
+#         x = x.view(-1, 64 * 4 * 4)
+#         x = F.relu(self.fc1(x))
+#         x = self.fc2(x)
+#         return x	
+class Cifar100_CNN_Simplified(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # 保持轻量化的3层CNN结构
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        
+        # 全连接层保持轻量化
+        self.fc1 = nn.Linear(64 * 4 * 4, 128)
+        self.fc2 = nn.Linear(128, 100)
+
+    def forward(self, x):
+        # 确保输入是 [batch_size, channels, height, width] 格式
+        if x.shape[1] != 3:  # 如果通道维度不在第1维
+            x = x.permute(0, 3, 1, 2)  # 从 [B,H,W,C] 转为 [B,C,H,W]
+        
+        x = F.relu(self.conv1(x))  # [B,16,32,32]
+        x = self.pool(x)           # [B,16,16,16]
+        
+        x = F.relu(self.conv2(x))  # [B,32,16,16]
+        x = self.pool(x)           # [B,32,8,8]
+        
+        x = F.relu(self.conv3(x))  # [B,64,8,8]
+        x = self.pool(x)           # [B,64,4,4]
+        
+        x = x.view(-1, 64 * 4 * 4)  # 展平 [B,1024]
+        x = F.relu(self.fc1(x))     # [B,128]
+        x = self.fc2(x)             # [B,100]
+        return x
 
 class BasicBlock(nn.Module):
     expansion = 1

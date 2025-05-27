@@ -4,7 +4,7 @@ import json
 from hashlib import sha256
 
 class Block:
-	def __init__(self, idx, previous_block_hash=None, transactions=None, nonce=0, miner_rsa_pub_key=None, mined_by=None, mining_rewards=None, hash=None, signature=None):
+	def __init__(self, idx, previous_block_hash=None, transactions=None, global_model = dict(), nonce=0, miner_rsa_pub_key=None, mined_by=None, mining_rewards=None, hash=None, signature=None):
 		self._idx = idx
 		self._previous_block_hash = previous_block_hash
 		self._transactions = transactions
@@ -18,6 +18,7 @@ class Block:
 		# the hash of the current block, calculated by compute_hash
 		self._hash = hash
 		self._signature = signature
+		self._global_model = dict()
 
 		#for proof_of_endorsement
 		self.leader_id = None
@@ -42,7 +43,7 @@ class Block:
 
 	def set_hash(self, the_hash):
 		self._hash = the_hash
-
+ 
 	def nonce_increment(self):
 		self._nonce += 1
 

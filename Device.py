@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset
@@ -15,6 +16,7 @@ from hashlib import sha256
 from Models import Mnist_2NN, Mnist_CNN
 from Blockchain import Blockchain
 import os
+from collections import defaultdict
 
 class Device:
     def __init__(self, idx, assigned_train_ds, assigned_test_dl, local_batch_size, learning_rate, loss_func, opti, network_stability, net, dev, miner_acception_wait_time, worker_acception_wait_time, miner_accepted_transactions_size_limit, validate_threshold, pow_difficulty, even_link_speed_strength, base_data_transmission_speed, even_computation_power, is_malicious, noise_variance, check_signature, not_resync_chain, malicious_updates_discount, knock_out_rounds, lazy_worker_knock_out_rounds):
@@ -98,7 +100,7 @@ class Device:
         self.unordered_arrival_time_accepted_miner_candidate = {}
         self.final_candidate_queue_to_validate = {}
         self.worker_accepted_broadcasted_miner_candidate = None or []
-        self.post_validation_candidate_queue = None or []
+        self.vote_transaction = {}
         self.unordered_downloaded_block_processing_queue = {}
         self.block_download_time = None
 
@@ -112,14 +114,15 @@ class Device:
         self.miner_associated_worker_set = set()
         self.miner_accepted_broadcasted_worker_transactions = None or []
         self.final_transactions_queue_to_validate = {}
+
         self.unordered_arrival_time_accepted_worker_transactions = {}
         self.aggregate_time = None
         self.aggregate_rewards = 0
         self.aggregate_local_updates_info = []
         self.candidate_model_dict = {}
-        self.final_candidate_transactions_queue_to_mine = []
-        self.accepted_miner_broadcasted_worker_validated_candidate_transactions = None or []
-        self.unordered_arrival_time_accepted_worker_validated_candidate_transactions = {}
+        self.final_vote_transactions_queue_to_mine = []
+        self.accepted_miner_broadcasted_worker_vote_transactions = None or []
+        self.unordered_arrival_time_accepted_worker_vote_transactions = {}
         self.miner_acception_wait_time = miner_acception_wait_time
         self.miner_accepted_transactions_size_limit = miner_accepted_transactions_size_limit
         self.mined_rewards = 0
@@ -138,7 +141,8 @@ class Device:
         ''' For malicious node '''
         self.variance_of_noises = None or []
 
-    def worker_reset_vars_for_new_round(self):
+    def reset_vars_for_new_round(self):
+        #worker
         self.local_update_time = None
         self.local_updates_dict.clear()
         self.local_updates_rewards_per_transaction = 0
@@ -149,19 +153,16 @@ class Device:
         self.unordered_arrival_time_accepted_miner_candidate.clear()
         self.final_candidate_queue_to_validate.clear()
         self.worker_accepted_broadcasted_miner_candidate.clear()
-        self.post_validation_candidate_queue.clear()
+        self.vote_transaction.clear()
         self.unordered_downloaded_block_processing_queue.clear()
         self.block_download_time = None
-
         self.received_block_from_miner = None
         self.accuracy_this_round = float('-inf')
         self.has_added_block = False
         self.the_added_block = None   
         self.round_end_time = 0
-
- 
-
-    def miner_reset_vars_for_new_round(self):
+        #miner
+        self.final_transactions_queue_to_validate
         self.miner_associated_worker_set.clear()
         self.unconfirmmed_transactions.clear()
         self.broadcasted_transactions.clear()
@@ -172,9 +173,9 @@ class Device:
         self.aggregate_local_updates_info.clear()
         self.aggregate_rewards = 0
         self.aggregate_time = None
-        self.unordered_arrival_time_accepted_worker_validated_candidate_transactions.clear()
-        self.final_candidate_transactions_queue_to_mine.clear()
-        self.accepted_miner_broadcasted_worker_validated_candidate_transactions.clear()
+        self.unordered_arrival_time_accepted_worker_vote_transactions.clear()
+        self.final_vote_transactions_queue_to_mine.clear()
+        self.accepted_miner_broadcasted_worker_vote_transactions.clear()
         #self.mined_rewards = 0
         self.unconfirmed_candidate_block = None
         self.unconfirmed_candidate_block_arrival_time = None
@@ -201,10 +202,10 @@ class Device:
                     miners_in_peer_list.add(peer)
         if not miners_in_peer_list:
             return False
-        random.seed(7)
+        # random.seed(7)
         associate_miner_number = random.randint(1, len(miners_in_peer_list)) #TODO:优化连接的miner数量以最小化通信开销
         self.worker_associated_miner_set = random.sample(miners_in_peer_list, associate_miner_number)
-        print(f"{self.role} {self.idx} associated with {len(self.worker_associated_miner_set)} miner(s): {[miner.return_idx() for miner in self.worker_associated_miner_set]}")
+        # print(f"{self.role} {self.idx} associated with {len(self.worker_associated_miner_set)} miner(s): {[miner.return_idx() for miner in self.worker_associated_miner_set]}")
         return self.worker_associated_miner_set
     
     def add_device_to_association(self, to_add_device):
@@ -213,16 +214,10 @@ class Device:
         else:
             print(f"WARNING: {to_add_device.return_idx()} in {self.role} {self.idx}'s black list. Not added by the {self.role}.")
 
-    def add_worker_to_association(self, worker_device):
-        if not worker_device.return_idx() in self.black_list:
-            self.associated_worker_set.add(worker_device)
-        else:
-            print(f"WARNING: {worker_device.return_idx()} in validator {self.idx}'s black list. Not added by the validator.")
-
     '''Step 1 - workers do local updates'''
     #TODO change to computation power
     def worker_local_update(self, rewards, log_files_folder_path_comm_round, comm_round, local_epochs=1):
-        print(f"Worker {self.idx} is doing local_update with computation power {self.computation_power} and link speed {round(self.link_speed,3)} bytes/s")
+        print(f"\r Worker {self.idx} is doing local_update with computation power {self.computation_power} and link speed {round(self.link_speed,3)} bytes/s")
         self.net.load_state_dict(self.global_parameters, strict=True) #Load the global parameters (model weights) into the worker's neural network
         self.local_update_time = time.time()
         # local worker update by specified epochs
@@ -259,7 +254,7 @@ class Device:
         # record accuracies to find good -vh
         with open(f"{log_files_folder_path_comm_round}/worker_final_local_accuracies_comm_{comm_round}.txt", "a") as file:
             file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node}: {self.validate_model_weights(self.net.state_dict())}\n")
-        print(f"Done {local_epochs} epoch(s) and total {self.local_total_epoch} epochs")
+        print(f"\rDone {local_epochs} epoch(s) and total {self.local_total_epoch} epochs")
         self.local_train_parameters = self.net.state_dict()
         self.local_accuracy = self.validate_model_weights(self.net.state_dict())
 
@@ -267,7 +262,9 @@ class Device:
     def return_local_updates_and_signature(self, comm_round):
         # local_total_accumulated_epochs_this_round also stands for the lastest_epoch_seq for this transaction(local params are calculated after this amount of local epochs in this round)
         # last_local_iteration(s)_spent_time may be recorded to determine calculating time? But what if nodes do not wish to disclose its computation power
-        self.local_updates_dict = {'worker_device_idx': self.idx, 'in_round_number': comm_round, "local_updates_params": copy.deepcopy(self.local_train_parameters), "local_updates_rewards": self.local_updates_rewards_per_transaction, "local_iteration(s)_spent_time": self.local_update_time, "local_total_accumulated_epochs_this_round": self.local_total_epoch, "worker_rsa_pub_key": self.return_rsa_pub_key()}
+        self.local_updates_dict = {'device_idx': self.idx, 'round_number': comm_round, "local_updates_params": copy.deepcopy(self.local_train_parameters), 
+                                   "local_updates_rewards": self.local_updates_rewards_per_transaction, "local_iteration(s)_spent_time": self.local_update_time, 
+                                   "local_total_accumulated_epochs_this_round": self.local_total_epoch, "worker_rsa_pub_key": self.return_rsa_pub_key()}
         self.local_updates_dict["worker_signature"] = self.sign_msg(sorted(self.local_updates_dict.items()))
 
     def validate_model_weights(self, weights_to_eval=None):
@@ -304,57 +301,105 @@ class Device:
     def return_associated_workers(self):
         return vars(self)[f'{self.role}_associated_worker_set']
  
-    def set_unordered_arrival_time_accepted_worker_transactions(self, unordered_transaction_arrival_queue):
+    def set_unordered_arrival_time_accepted_worker_transactions(self, unordered_transaction_arrival_queue: dict):
         self.unordered_arrival_time_accepted_worker_transactions = unordered_transaction_arrival_queue
-    
+
     def set_transaction_for_final_validating_queue(self, final_transactions_arrival_queue):
-        self.final_transactions_queue_to_validate = final_transactions_arrival_queue
+        seen = set()
+        unique_transactions = []
+
+        for arrival_time, transaction in final_transactions_arrival_queue:
+            tx_id = (transaction['device_idx'], transaction.get('round_number', 0))
+            if tx_id not in seen:
+                seen.add(tx_id)
+                unique_transactions.append((arrival_time, transaction))
+
+        self.final_transactions_queue_to_validate = unique_transactions
 
     def miner_broadcast_worker_transactions(self):
-        for peer in self.peer_list:
-            if peer.is_online():
-                if peer.return_role() == "miner":
-                    if not peer.return_idx() in self.black_list:
-                        print(f"miner {self.idx} is broadcasting received miner transactions to miner {peer.return_idx()}.")
-                        final_broadcasting_unordered_arrival_time_accepted_worker_transactions_for_dest_miner = copy.copy(self.unordered_arrival_time_accepted_worker_transactions)
-                        # if offline, it's like the broadcasted transaction was not received, so skip a transaction
-                        for arrival_time, tx in self.unordered_arrival_time_accepted_worker_transactions.items():
-                            if not (self.online_switcher() and peer.online_switcher()):
-                                del final_broadcasting_unordered_arrival_time_accepted_worker_transactions_for_dest_miner[arrival_time]
-                        # in the real distributed system, it should be broadcasting transaction one by one. Here we send the all received transactions(while online) and later calculate the order for the individual broadcasting transaction's arrival time mixed with the transactions itself received
-                        peer.accept_miner_broadcasted_worker_transactions(self, final_broadcasting_unordered_arrival_time_accepted_worker_transactions_for_dest_miner)
-                        print(f"miner {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_worker_transactions_for_dest_miner)} worker transactions to miner {peer.return_idx()}.")
-                    else:
-                        print(f"Destination miner {peer.return_idx()} is in this miner {self.idx}'s black_list. broadcasting skipped for this dest miner.")
+        if not hasattr(self, 'unordered_arrival_time_accepted_worker_transactions'):
+            print(f"[Miner {self.idx}] No transactions to broadcast.")
+            return
+
+        online_peers = [p for p in self.peer_list if self._should_broadcast_to_peer(p)]
+
+        if not online_peers:
+            print(f"[Miner {self.idx}] No online peers to broadcast to.")
+            return
+
+        # 筛选出当前 miner 在线的交易
+        online_txs = {
+            arrival_time: tx for arrival_time, tx in self.unordered_arrival_time_accepted_worker_transactions.items()
+            if self.online_switcher()
+        }
+
+        if not online_txs:
+            print(f"[Miner {self.idx}] Miner is offline or has no transactions to broadcast.")
+            return
+
+        for peer in online_peers:
+            print(f"[Miner {self.idx}] Broadcasting {len(online_txs)} transactions to miner {peer.return_idx()}.")
+            peer.accept_miner_broadcasted_worker_transactions(self, online_txs)
+
+    def _should_broadcast_to_peer(self, peer):
+        if not peer.is_online():
+            return False
+        if peer.return_role() != "miner":
+            return False
+        if peer.return_idx() == self.idx:
+            return False
+        if peer.return_idx() in self.black_list:
+            print(f"[Miner {self.idx}] Peer {peer.return_idx()} is in blacklist.")
+            return False
+        return True
 
     def accept_miner_broadcasted_worker_transactions(self, source_miner, unordered_transaction_arrival_queue_from_source_miner):
-        unordered_transaction_arrival_queue_from_source_miner_to_added = {}
-        if not source_miner.return_idx() in self.black_list:
-            for arrival_time, tx in unordered_transaction_arrival_queue_from_source_miner.items():
-                if not self.check_if_has_same_transaction(tx, self.unordered_arrival_time_accepted_worker_transactions, self.miner_accepted_broadcasted_worker_transactions):
-                    unordered_transaction_arrival_queue_from_source_miner_to_added[arrival_time] = tx
-            if len(unordered_transaction_arrival_queue_from_source_miner_to_added) > 0:
-                self.miner_accepted_broadcasted_worker_transactions.append({'source_miner_link_speed': source_miner.return_link_speed(),'broadcasted_transactions': copy.deepcopy(unordered_transaction_arrival_queue_from_source_miner_to_added)})
-                print(f"miner {self.idx} has accepted worker transactions from miner {source_miner.return_idx()}")
-            else:
-                print(f"miner {self.idx} already has the same worker transactions from miner {source_miner.return_idx()}")
-        else:
-            print(f"Source miner {source_miner.return_idx()} is in miner {self.idx}'s black list. Broadcasted transactions not accepted.")
+        if source_miner.return_idx() in self.black_list:
+            print(f"[Miner {self.idx}] Source miner {source_miner.return_idx()} in blacklist.")
+            return
 
-    def check_if_has_same_transaction(self, transaction_received_from_miner, transactions_received_from_associated_workers, accepted_broadcasted_worker_transactions):
-        if_in_transactions_received_from_associated_workers = False
-        if_in_accepted_broadcasted_worker_transactions = False
-        for   _, transaction in transactions_received_from_associated_workers.items():
-            if transaction['worker_device_idx'] == transaction_received_from_miner['worker_device_idx']:
-                if_in_transactions_received_from_associated_workers = True
-                break
-        for accepted_transactions_from_other_worker in accepted_broadcasted_worker_transactions:
-            for _, tx in accepted_transactions_from_other_worker['broadcasted_transactions'].items():
-                if tx['worker_device_idx'] == transaction_received_from_miner['worker_device_idx']:
-                    if_in_accepted_broadcasted_worker_transactions = True
-                    break
-        return if_in_transactions_received_from_associated_workers or if_in_accepted_broadcasted_worker_transactions
+        new_txs = {}
+        for arrival_time, tx in unordered_transaction_arrival_queue_from_source_miner.items():
+            if not self.check_if_has_same_transaction(tx):
+                new_txs[arrival_time] = tx
+
+        if new_txs:
+            self.miner_accepted_broadcasted_worker_transactions.append({
+                'source_miner_link_speed': source_miner.return_link_speed(),
+                'broadcasted_transactions': copy.deepcopy(new_txs)
+            })
+            print(f"\r[Miner {self.idx}] Accepted {len(new_txs)} new transactions from miner {source_miner.return_idx()}")
+        else:
+            print(f"[Miner {self.idx}] All transactions from miner {source_miner.return_idx()} already exist.")
     
+    def check_if_has_same_transaction(self, tx):
+        device_idx = tx['device_idx']
+        round_number = tx.get('round_number', None)
+
+        direct_txs = self.unordered_arrival_time_accepted_worker_transactions.values()
+        broadcasted_txs = [
+            t for b in self.miner_accepted_broadcasted_worker_transactions
+            for t in b['broadcasted_transactions'].values()
+        ]
+
+        for existing in list(direct_txs) + broadcasted_txs:
+            if existing['device_idx'] == device_idx:
+                if round_number is None or existing.get('round_number') == round_number:
+                    return True
+        return False
+    
+    def transaction_exists(self, tx, queue):
+        device_idx = tx['device_idx']
+        round_number = tx.get('round_number', None)
+
+        existed_txs = queue.values()
+
+        for existing in list(existed_txs):
+            if existing['device_idx'] == device_idx:
+                if round_number is None or existing.get('round_number') == round_number:
+                    return True
+        return False
+        
     ''' Step 2.5 - with the broadcasted workers transactions, miners decide the final transaction arrival order \n'''
     def return_accepted_broadcasted_worker_transactions(self):
         return self.miner_accepted_broadcasted_worker_transactions
@@ -408,7 +453,7 @@ class Device:
             print(f"miner {self.idx} has computation power 0 and will not be able to validate this transaction in time")
             return False, False
         else:
-            worker_transaction_device_idx = transaction_to_validate['worker_device_idx']
+            worker_transaction_device_idx = transaction_to_validate['device_idx']
             if worker_transaction_device_idx in self.black_list:
                 print(f"{worker_transaction_device_idx} is in miner's blacklist. Trasaction won't get validated.")
                 return False, False
@@ -431,7 +476,7 @@ class Device:
                     # will also add sig not verified transaction due to the miner's verification effort and its rewards needs to be recorded in the block
                     transaction_to_validate['worker_signature_valid'] = False
             else:
-                print(f"Signature of transaction from worker {worker_transaction_device_idx} is verified by miner {self.idx}!")
+                print(f"\rSignature of transaction from worker {worker_transaction_device_idx} is verified by miner {self.idx}!")
                 transaction_to_validate['worker_signature_valid'] = True
 
             # 2 - validate worker's local_updates_params if worker's signature is valid
@@ -483,9 +528,9 @@ class Device:
             transaction_to_validate['validation_done_by'] = self.idx
             validation_time = (time.time() - validation_time)/self.computation_power
             transaction_to_validate['validation_time'] = validation_time
-            transaction_to_validate['miner_rsa_pub_key'] = self.return_rsa_pub_key()
-            # assume signing done in negligible time
-            transaction_to_validate["miner_signature"] = self.sign_msg(sorted(transaction_to_validate.items()))
+            # transaction_to_validate['miner_rsa_pub_key'] = self.return_rsa_pub_key()
+            # # assume signing done in negligible time
+            # transaction_to_validate["miner_signature"] = self.sign_msg(sorted(transaction_to_validate.items()))
             return validation_time, transaction_to_validate
     
     def add_post_validation_transaction_to_queue(self, transaction_to_add):
@@ -499,72 +544,216 @@ class Device:
         local_params_used_by_miner = []
         for (_, _, post_validation_transaction) in post_validation_transactions_by_miner:
             if post_validation_transaction['update_direction']:
-                local_params_used_by_miner.append((post_validation_transaction['worker_device_idx'], post_validation_transaction["local_updates_params"]))
+                local_params_used_by_miner.append((post_validation_transaction['device_idx'], post_validation_transaction["local_updates_params"]))
         return local_params_used_by_miner
     
     def set_local_updates_used_info_by_miner(self,post_validation_transactions_by_miner):
         for (_, _, post_validation_transaction) in post_validation_transactions_by_miner:
             if post_validation_transaction['update_direction']:
-                self.aggregate_local_updates_info.append({'worker_device_idx':post_validation_transaction['worker_device_idx'], "local_updates_rewards": post_validation_transaction["local_updates_rewards"], "validation_rewards": post_validation_transaction["validation_rewards"],"validation_done_by":post_validation_transaction["validation_done_by"]})
-    
-    #TODO different aggregate methods and malicious miners
-    def aggregate_candidate_model(self, local_update_params_potentially_to_be_used, rewards, log_files_folder_path_comm_round, comm_round):
-        print(f"Miner {self.idx} is aggregating candidate model with computation power {self.computation_power} and link speed {round(self.link_speed,3)} bytes/s")
-        # filter local_params
-        local_params_by_benign_workers = []
+                self.aggregate_local_updates_info.append({
+                    'device_idx':post_validation_transaction['device_idx'], 
+                    "local_updates_rewards": post_validation_transaction["local_updates_rewards"], 
+                    "validation_rewards": post_validation_transaction["validation_rewards"],""
+                    "validation_done_by":post_validation_transaction["validation_done_by"]})
+
+
+    def aggregate_candidate_model(self, local_updates, aggregation_method: str, rewards: float, log_folder: str, comm_round: int):
+        # 初始化 aggregate_time
         self.aggregate_time = time.time()
-        for (worker_device_idx, local_params) in local_update_params_potentially_to_be_used:
-            if not worker_device_idx in self.black_list:
-                local_params_by_benign_workers.append(local_params)
+
+        print(f"[Miner {self.idx}] Starting model aggregation...")
+
+        # Step 1: 过滤良性工人
+        benign_updates = self._filter_benign_workers(local_updates)
+        if not benign_updates:
+            print(f"[Miner {self.idx}] No valid updates to aggregate in this round.")
+            self.aggregate_time = float('inf')  # 设置默认值
+            return
+
+        # Step 2: 选择聚合方法
+        aggregation_method = aggregation_method  # 可配置为 "FedAvg", "Median", "TrimmedMean"
+        aggregated_weights = self._aggregate_model_parameters(benign_updates, method=aggregation_method)
+
+        # Step 3: 更新候选模型
+        self.candidate_parameters.update(aggregated_weights)
+        num_participants = len(benign_updates)
+        self.aggregate_rewards += rewards * num_participants
+
+        # Step 4: 恶意矿工行为（添加噪声）
+        if self.is_malicious:
+            self._apply_malicious_attack(aggregation_method)
+
+        # Step 5: 记录日志
+        self._log_aggregation_results(log_folder, comm_round, num_participants)
+
+        # Step 6: 计算聚合耗时
+        self._calculate_aggregation_time()
+
+
+    def _filter_benign_workers(self, local_updates):
+        """过滤黑名单中的工人，返回良性工人的本地更新参数"""
+        benign_updates = []
+        for worker_idx, params in local_updates:
+            if worker_idx not in self.black_list:
+                benign_updates.append(params)
             else:
-                print(f"global update skipped for a worker {worker_device_idx} in {self.idx}'s black list")
-        if local_params_by_benign_workers:
-            # avg the gradients
-            sum_parameters = None
-            for local_updates_params in local_params_by_benign_workers:
-                if sum_parameters is None:
-                    sum_parameters = copy.deepcopy(local_updates_params)
-                else:
-                    for var in sum_parameters:
-                        sum_parameters[var] += local_updates_params[var]
-            # number of finally filtered workers' updates
-            num_participants = len(local_params_by_benign_workers)
-            for var in self.candidate_parameters:
-                self.candidate_parameters[var] = (sum_parameters[var] / num_participants)
-            print(f"A candidate model is produced by {self.idx} using {num_participants} workers' local updates.")
-            self.aggregate_rewards += rewards * num_participants #setting rewards 
-            with open(f"{log_files_folder_path_comm_round}/miner_{self.idx}_candidate_model_accuracies_comm_{comm_round}.txt", "a") as file:
-                file.write(f"{self.return_idx()} round_{comm_round} {self.return_role()}: {self.validate_model_weights(self.net.state_dict())}\n") #self.validate_model_weights(self.net.state_dict())是否可用？
+                print(f"[Miner {self.idx}] Skipped worker {worker_idx} in black list.")
+        return benign_updates
+
+
+    def _aggregate_model_parameters(self, updates, method: str = "FedAvg"):
+        """
+        根据指定方法聚合模型参数。
+        支持:
+            - FedAvg: 简单平均
+            - Median: 参数取中位数
+            - TrimmedMean: 剪枝均值（去除最高/最低 20%）
+        """
+        if method == "FedAvg":
+            return self._fed_avg_aggregation(updates)
+        elif method == "Median":
+            return self._median_aggregation(updates)
+        elif method == "TrimmedMean":
+            return self._trimmed_mean_aggregation(updates, trim_ratio=0.2)
+        elif method == "Krum":
+            return self._krum_aggregation(updates, f=1)
+        else:
+            raise ValueError(f"Unsupported aggregation method: {method}")
+
+
+    def _fed_avg_aggregation(self, updates):
+        """简单平均聚合"""
+        if not updates:
+            return {}
+
+        sum_params = copy.deepcopy(updates[0])
+        for param_dict in updates[1:]:
+            for key in sum_params:
+                sum_params[key] += param_dict[key]
+
+        for key in sum_params:
+            sum_params[key] /= len(updates)
+        return sum_params
+
+
+    def _median_aggregation(self, updates):
+        """中位数聚合"""
+        # 实现逻辑：对每个参数取所有更新的中位数
+        # 示例（需根据实际参数结构调整）：
+        median_params = {}
+        for key in updates[0].keys():
+            values = [param_dict[key] for param_dict in updates]
+            median_params[key] = torch.median(torch.stack(values), dim=0).values
+        return median_params
+
+
+    def _trimmed_mean_aggregation(self, updates, trim_ratio: float = 0.2):
+        """剪枝均值聚合"""
+        if not updates:
+            return {}
+
+        num_trims = int(trim_ratio * len(updates))
+        trimmed_params = {}
+        for key in updates[0].keys():
+            values = [param_dict[key] for param_dict in updates]
+            sorted_values = torch.sort(torch.stack(values), dim=0).values
+            trimmed_values = sorted_values[num_trims:-num_trims] if num_trims > 0 else sorted_values
+            trimmed_params[key] = trimmed_values.mean(dim=0)
+        return trimmed_params
+
+
+    def _apply_malicious_attack(self, method: str):
+        """恶意矿工攻击逻辑（示例：添加噪声）"""
+        if method == "FedAvg":
+            self.net.apply(self._add_gaussian_noise)
+        elif method == "Median":
+            self.net.apply(self._replace_with_extreme_values)
+        # 可扩展其他攻击方式...
+        print(f"[Malicious Miner {self.idx}] Applied attack on aggregated model.")
+
+
+    def _add_gaussian_noise(self, module):
+        """向模型权重添加高斯噪声"""
+        if hasattr(module, 'weight'):
+            noise = torch.randn_like(module.weight) * self.noise_variance
+            module.weight.data += noise
+        if hasattr(module, 'bias') and module.bias is not None:
+            noise = torch.randn_like(module.bias) * self.noise_variance
+            module.bias.data += noise
+
+
+    def _log_aggregation_results(self, log_folder: str, comm_round: int, num_workers: int):
+        """记录聚合结果到日志文件"""
+        log_file = os.path.join(log_folder, f"miner_{self.idx}_candidate_model_accuracies_comm_{comm_round}.txt")
+        with open(log_file, "a") as f:
+            accuracy = self.validate_model_weights(self.net.state_dict())
+            f.write(f"{self.return_idx()} round_{comm_round} {self.return_role()}: {accuracy}\n")
+
+    def _calculate_aggregation_time(self):
+        """计算聚合耗时"""
+        if self.aggregate_time is None:
+            self.aggregate_time = float('inf')
+        else:
             try:
-                self.aggregate_time = (time.time() - self.aggregate_time)/self.computation_power
-            except:
+                self.aggregate_time = (time.time() - self.aggregate_time) / self.computation_power
+            except ZeroDivisionError:
                 self.aggregate_time = float('inf')
 
+    def _krum_aggregation(self, updates, f: int = 1):
+        """
+        Krum 聚合算法（拜占庭容错）。
+        参数:
+            updates: 本地模型参数列表
+            f: 允许的拜占庭节点数（默认 1）
+        返回:
+            聚合后的模型参数
+        """
+        if len(updates) < f + 2:
+            print(f"[Miner {self.idx}] Not enough models for Krum (need >= {f+2}). Falling back to FedAvg.")
+            return self._fed_avg_aggregation(updates)
 
-            if self.is_malicious:
-                self.net.apply(self.malicious_miner_add_noise_to_weights)
-                print(f"malicious miner {self.idx} has added noise to its candidate global model weights before transmitting")
-                with open(f"{log_files_folder_path_comm_round}/comm_{comm_round}_variance_of_noises.txt", "a") as file:
-                    file.write(f"{self.return_idx()} {self.return_role()}  noise variances: {self.variance_of_noises}\n")
+        # Step 1: 计算所有模型两两之间的距离
+        all_distances = []
+        for i in range(len(updates)):
+            distances = []
+            for j in range(len(updates)):
+                if i == j:
+                    continue
+                # 计算参数之间的欧氏距离
+                distance = 0
+                for key in updates[i]:
+                    distance += torch.norm(updates[i][key] - updates[j][key]).item()
+                distances.append((j, distance))
+            all_distances.append(distances)
 
-        else:
-            print(f"There are no available local params for {self.idx} to get candidate model in this comm round.")
-    
-    def malicious_miner_add_noise_to_weights(self, m):
-        with torch.no_grad():
-            if hasattr(m, 'weight'): #checks if the module m has a weight attribute
-                noise = self.noise_variance * torch.randn(m.weight.size())
-                variance_of_noise = torch.var(noise)
-                m.weight.add_(noise.to(self.dev))
-                self.variance_of_noises.append(float(variance_of_noise))
+        # Step 2: 对每个模型，选择距离最小的 f+1 个模型
+        selected_indices = []
+        for i in range(len(updates)):
+            distances = sorted(all_distances[i], key=lambda x: x[1])[:f+1]
+            total_distance = sum(d[1] for d in distances)
+            selected_indices.append((i, total_distance))
+
+        # Step 3: 选择总距离最小的模型
+        winner_idx = min(selected_indices, key=lambda x: x[1])[0]
+        print(f"[Miner {self.idx}] Krum selected model {winner_idx} as the winner.")
+
+        # Step 4: 返回该模型的参数
+        return updates[winner_idx]
+
 
     def return_candidate_model_and_signature(self, comm_round):
-        self.candidate_model_dict = {'miner_idx': self.idx, 'in_round_number': comm_round, "candidate_model_params": copy.deepcopy(self.candidate_parameters), "aggregate_rewards": self.aggregate_rewards, "aggregate_spent_time": self.aggregate_time, "aggregate_local_updates_info": self.aggregate_local_updates_info, "miner_rsa_pub_key": self.return_rsa_pub_key()}
+        self.candidate_model_dict = {'device_idx': self.idx, 
+                                     'round_number': comm_round, 
+                                     "candidate_model_params": copy.deepcopy(self.candidate_parameters), 
+                                     "aggregate_rewards": self.aggregate_rewards, 
+                                     "aggregate_spent_time": self.aggregate_time, 
+                                     "aggregate_local_updates_info": self.aggregate_local_updates_info, 
+                                     "miner_rsa_pub_key": self.return_rsa_pub_key()}
         self.candidate_model_dict["miner_signature"] = self.sign_msg(sorted(self.candidate_model_dict.items()))
 
     ''' Step 5 - workers accept candidate models and broadcast to other workers in their respective peer lists .'''   
     def return_associated_miners(self):
-        return vars(self)[f'{self.role}_associated_miner_set']
+        return self.worker_associated_miner_set
     
     def return_worker_acception_wait_time(self):
         return self.worker_acception_wait_time
@@ -573,50 +762,119 @@ class Device:
         self.unordered_arrival_time_accepted_miner_candidate = unordered_candidate_arrival_queue     #dict
     
     def set_candidate_for_final_validating_queue(self, final_candidate_arrival_queue):
-        self.final_candidate_queue_to_validate = final_candidate_arrival_queue #dict
+        """
+        从 final_candidate_arrival_queue 中去重并设置验证队列。
+        使用 device_idx 作为唯一标识符。
+        """
+        seen_device_ids = set()
+        unique_candidates = []
+
+        for arrival_time, transaction in final_candidate_arrival_queue:
+            tx_id = (transaction['device_idx'], transaction.get('round_number', 0))
+            if tx_id not in seen_device_ids:
+                seen_device_ids.add(tx_id)
+                unique_candidates.append((arrival_time, transaction))
+
+        self.final_candidate_queue_to_validate = unique_candidates
 
     def worker_broadcast_miner_candidate(self):
-        for peer in self.peer_list:
-            if peer.is_online():
+            """
+            广播当前 worker 接收到的 miner 候选模型到其对等 worker 列表。
+            """
+            if not self.is_online:
+                print(f"Worker {self.idx} is offline. Skipping broadcast.")
+                return
+
+            if not self.unordered_arrival_time_accepted_miner_candidate:
+                print(f"Worker {self.idx} has no candidate to broadcast.")
+                return
+
+            for peer in self.peer_list:
+                if not peer.is_online or peer.return_idx() in self.black_list:
+                    print(f"Peer {peer.return_idx()} is offline or in black list. Skipping.")
+                    continue
+
                 if peer.return_role() == "worker":
-                    if not peer.return_idx() in self.black_list:
-                        print(f"worker {self.idx} is broadcasting received miner candidate to worker {peer.return_idx()}.")
-                        final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker = copy.copy(self.unordered_arrival_time_accepted_miner_candidate)
-                        # if offline, it's like the broadcasted transaction was not received, so skip a transaction
-                        for arrival_time, tx in self.unordered_arrival_time_accepted_miner_candidate.items():
-                            if not (self.online_switcher() and peer.online_switcher()):
-                                del final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker[arrival_time]
-                        # in the real distributed system, it should be broadcasting transaction one by one. Here we send the all received candidate(while online) and later calculate the order for the individual broadcasting transaction's arrival time mixed with the candidate itself received
-                        peer.accept_worker_broadcasted_miner_candidate(self, final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker)
-                        print(f"worker {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_miner_candidate_for_dest_worker)} miner candidate to worker {peer.return_idx()}.")
-                    else:
-                        print(f"Destination worker {peer.return_idx()} is in this worker {self.idx}'s black_list. broadcasting skipped for this dest worker.")
+                    # 过滤离线期间的交易
+                    online_txs = {
+                        arrival_time: tx
+                        for arrival_time, tx in self.unordered_arrival_time_accepted_miner_candidate.items()
+                        if peer.is_online and self.is_online
+                    }
+                    print(f"Worker {self.idx} broadcasted {len(online_txs)} miner candidates to worker {peer.return_idx()}.")
+                    peer.accept_worker_broadcasted_miner_candidate(self, online_txs)
 
     def accept_worker_broadcasted_miner_candidate(self, source_worker, unordered_transaction_arrival_queue_from_source_worker):
-        if not source_worker.return_idx() in self.black_list:
-            unordered_transaction_arrival_queue_from_source_worker_to_added = {}
-            for arrival_time, tx in unordered_transaction_arrival_queue_from_source_worker.items():
-                if not self.check_if_has_same_candidate_transaction(tx, self.unordered_arrival_time_accepted_miner_candidate, self.worker_accepted_broadcasted_miner_candidate):
-                    unordered_transaction_arrival_queue_from_source_worker_to_added[arrival_time] = tx
-            self.worker_accepted_broadcasted_miner_candidate.append({'source_worker_link_speed': source_worker.return_link_speed(),'broadcasted_candidate': copy.deepcopy(unordered_transaction_arrival_queue_from_source_worker_to_added)})
-            print(f"worker {self.idx} has accepted miner candidate from worker {source_worker.return_idx()}")
-        else:
-            print(f"Source worker {source_worker.return_idx()} is in worker {self.idx}'s black list. Broadcasted candidate not accepted.")
-    
+        """
+        接收并存储其他 worker 广播的候选模型。
+        """
+        if source_worker.return_idx() in self.black_list:
+            print(f"Source worker {source_worker.return_idx()} is in black list. Skipping.")
+            return
+
+        # 去重：仅保留未接收过的交易
+        filtered_transactions = {}
+        for arrival_time, tx in unordered_transaction_arrival_queue_from_source_worker.items():
+            if not self._has_received_same_candidate(tx):
+                filtered_transactions[arrival_time] = tx
+
+        if filtered_transactions:
+            self.worker_accepted_broadcasted_miner_candidate.append({
+                "source_worker_link_speed": source_worker.return_link_speed(),
+                "broadcasted_candidate": filtered_transactions
+            })
+            print(f"Worker {self.idx} accepted {len(filtered_transactions)} miner candidates from worker {source_worker.return_idx()}.")
+
+
     def check_if_has_same_candidate_transaction(self, transaction_received_from_worker, transactions_received_from_associated_miners, worker_accepted_broadcasted_miner_candidate):
         if_in_transactions_received_from_associated_miners = False
         if_in_worker_accepted_broadcasted_miner_candidate = False
         for _, transaction in transactions_received_from_associated_miners.items():
-            if transaction['miner_idx'] == transaction_received_from_worker['miner_idx']:
+            if transaction['device_idx'] == transaction_received_from_worker['device_idx']:
                 if_in_transactions_received_from_associated_miners = True                
                 break
         for txs in worker_accepted_broadcasted_miner_candidate:
             for _, tx in txs['broadcasted_candidate'].items():
-                if tx['miner_idx'] == transaction_received_from_worker['miner_idx']:
+                if tx['device_idx'] == transaction_received_from_worker['device_idx']:
                     if_in_worker_accepted_broadcasted_miner_candidate = True
                     break
-        return if_in_transactions_received_from_associated_miners or if_in_worker_accepted_broadcasted_miner_candidate
+        return if_in_transactions_received_from_associated_miners or if_in_worker_accepted_broadcasted_miner_candidate    
     
+    def candidate_exists(self, tx, queue):
+        device_idx = tx['device_idx']
+        round_number = tx.get('round_number', None)
+
+        existed_txs = queue.values()
+
+        for existing in list(existed_txs):
+            if existing['device_idx'] == device_idx:
+                if round_number is None or existing.get('round_number') == round_number:
+                    return True
+        return False
+
+    def _has_received_same_candidate(self, transaction):
+        """
+        检查当前 worker 是否已接收过相同 device_idx 的交易。
+        """
+        device_id = transaction.get("device_idx")
+        round_number = transaction.get('round_number', None)
+
+        if device_id is None:
+            return False  # 无法判断，视为新交易
+
+        # 检查直接接收的交易
+        for _, tx in self.unordered_arrival_time_accepted_miner_candidate.items():
+            if tx.get("device_idx") == device_id:
+                return True
+
+        # 检查已接收的广播交易
+        for record in self.worker_accepted_broadcasted_miner_candidate:
+            for _, tx in record["broadcasted_candidate"].items():
+                if tx.get("device_idx") == device_id:
+                    return True
+
+        return False
+
     ''' Step 5.5: with the broadcasted miners candidate models, workers decide the final arrival order'''
     def return_accepted_broadcasted_miner_candidate(self):
         return self.worker_accepted_broadcasted_miner_candidate #list of dicts
@@ -635,7 +893,7 @@ class Device:
             print(f"worker {self.idx} has computation power 0 and will not be able to validate this candidate in time")
             return False, False
         else:
-            miner_candidate_device_idx = candidate_to_validate["miner_idx"]
+            miner_candidate_device_idx = candidate_to_validate["device_idx"]
             if miner_candidate_device_idx in self.black_list:
                 print(f"{miner_candidate_device_idx} is in worker's blacklist. Candidate won't get validated.")
                 return False, False
@@ -711,57 +969,130 @@ class Device:
             # assume signing done in negligible time
             candidate_to_validate["worker_signature"] = self.sign_msg(sorted(candidate_to_validate.items()))
             return validation_time, candidate_to_validate
+    
+    def create_vote_from_candidate(self, validated_candidate):
+
+        if not validated_candidate.get("miner_signature_valid", False):
+            print("Candidate signature invalid, skipping vote creation.")
+            return None
+
+        miner_id = validated_candidate["device_idx"]
+        candidate_accuracy = validated_candidate["candidate_validation_accuracy"]
+
+        vote = (miner_id, candidate_accuracy)
+        return vote
         
-    def add_post_validation_candidate_to_queue(self, candidate_to_add):
-        self.post_validation_candidate_queue.append(candidate_to_add)       
+    def set_vote_transaction(self, votes, comm_round, total_validation_time):
+        self.vote_transaction = {"vote": copy.deepcopy(votes),"link_spped": self.link_speed, "vote_by": self.idx, "round_number": comm_round,
+                                 'worker_rsa_pub_key': self.return_rsa_pub_key(), 'worker_signature': None,
+                                 'validation_time': total_validation_time}
+        self.vote_transaction["worker_signature"] = self.sign_msg(sorted(self.vote_transaction.items()))
 
     ''' Step 7 - workers send post validation candidate transactions to associated miner and miner broadcasts these to other miners in their respecitve peer lists.\n'''
-    def return_post_validation_candidate_queue(self):
-        return self.post_validation_candidate_queue
+    def return_vote_transaction(self):
+        return self.vote_transaction
 
-    def set_unordered_arrival_time_accepted_worker_validated_candidate_transactions(self, unordered_candidate_transaction_arrival_queue):
-        self.unordered_arrival_time_accepted_worker_validated_candidate_transactions = unordered_candidate_transaction_arrival_queue
+    def set_unordered_arrival_time_accepted_worker_vote_transactions(self, unordered_vote_transaction_arrival_queue):
+        self.unordered_arrival_time_accepted_worker_vote_transactions = unordered_vote_transaction_arrival_queue
     
-    def set_candidate_transactions_for_final_mining_queue(self, final_transactions_arrival_queue):
-        self.final_candidate_transactions_queue_to_mine = final_transactions_arrival_queue
-        
-    def miner_broadcast_worker_validated_candidate_transactions(self):
-        for peer in self.peer_list:
-            if peer.is_online():
-                if peer.return_role() == "miner":
-                    if not peer.return_idx() in self.black_list:
-                        print(f"miner {self.idx} is broadcasting received miner transactions to miner {peer.return_idx()}.")
-                        final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner = copy.copy(self.unordered_arrival_time_accepted_worker_validated_candidate_transactions)
-                        # if offline, it's like the broadcasted transaction was not received, so skip a transaction
-                        for arrival_time, tx in self.unordered_arrival_time_accepted_worker_validated_candidate_transactions.items():
-                            if not (self.online_switcher() and peer.online_switcher()):
-                                del final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner[arrival_time]
-                        # in the real distributed system, it should be broadcasting transaction one by one. Here we send the all received transactions(while online) and later calculate the order for the individual broadcasting transaction's arrival time mixed with the transactions itself received
-                        peer.accept_miner_broadcasted_worker_validated_candidate_transactions(self, final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner)
-                        print(f"miner {self.idx} has broadcasted {len(final_broadcasting_unordered_arrival_time_accepted_worker_validated_candidate_transactions_for_dest_miner)} worker transactions to miner {peer.return_idx()}.")
-                    else:
-                        print(f"Destination miner {peer.return_idx()} is in this miner {self.idx}'s black_list. broadcasting skipped for this dest miner.")
+    def miner_broadcast_worker_vote_transactions(self):
+        if not hasattr(self, 'unordered_arrival_time_accepted_worker_vote_transactions'):
+            print(f"[Miner {self.idx}] No transactions to broadcast.")
+            return
+        online_peers = [p for p in self.peer_list if self._should_broadcast_to_peer(p)]
 
-    def accept_miner_broadcasted_worker_validated_candidate_transactions(self, source_worker, unordered_candidate_transaction_arrival_queue_from_source_miner):
-        if not source_worker.return_idx() in self.black_list:
-            self.accepted_miner_broadcasted_worker_validated_candidate_transactions.append({'source_miner_link_speed': source_worker.return_link_speed(),'broadcasted_validated_candidate_transactions': copy.deepcopy(unordered_candidate_transaction_arrival_queue_from_source_miner)})
-            print(f"worker {self.idx} has accepted miner candidate transactions from worker {source_worker.return_idx()}")
+        if not online_peers:
+            print(f"[Miner {self.idx}] No online peers to broadcast to.")
+            return
+
+        #筛选出当前 miner 在线的交易
+        online_txs = {
+            arrival_time: tx for arrival_time, tx in self.unordered_arrival_time_accepted_worker_vote_transactions.items()
+            if self.online_switcher()
+        }
+
+        if not online_txs:
+            print(f"[Miner {self.idx}] Miner is offline or has no transactions to broadcast.")
+            return
+        
+        for peer in online_peers:
+            print(f"[Miner {self.idx}] Broadcasting {len(online_txs)} transactions to miner {peer.return_idx()}.")
+            peer.accept_miner_broadcasted_worker_vote_transactions(self, online_txs)
+
+
+    def accept_miner_broadcasted_worker_vote_transactions(self, source_miner, received_votes):
+        if source_miner.return_idx() in self.black_list:
+            print(f"Source miner {source_miner.return_idx()} is in worker {self.idx}'s blacklist. Broadcast skipped.")
+            return
+        
+        new_txs = {}
+        for arrival_time, tx in received_votes.items():
+            if not self.check_if_has_same_vote_transaction(tx): #######
+                new_txs[arrival_time] = tx
+
+        if new_txs:
+            self.accepted_miner_broadcasted_worker_vote_transactions.append({
+                'source_miner_link_speed': source_miner.return_link_speed(),
+                'broadcasted_vote_transactions': copy.deepcopy(new_txs)
+            })
+            print(f"\r[Miner {self.idx}] Accepted {len(new_txs)} new vote transactions from miner {source_miner.return_idx()}")
         else:
-            print(f"Source worker {source_worker.return_idx()} is in worker {self.idx}'s black list. Broadcasted transactions not accepted.")
+            print(f"[Miner {self.idx}] All vote transactions from miner {source_miner.return_idx()} already exist.")
+    
+    def check_if_has_same_vote_transaction(self, tx):
+        vote_by = tx['vote_by']
+        round_number = tx.get('round_number', None)
 
-    ''' Step 7.5: with the broadcasted validated candidate transactions, miners decide the final candidate transaction arrival order. '''
-    def return_accepted_miner_broadcasted_worker_validated_candidate_transactions(self):
-        return self.accepted_miner_broadcasted_worker_validated_candidate_transactions
+        direct_txs = self.unordered_arrival_time_accepted_worker_vote_transactions.values()
+        broadcasted_txs = [
+            t for b in self.accepted_miner_broadcasted_worker_vote_transactions
+            for t in b['broadcasted_vote_transactions'].values()
+        ]
+
+        for existing in list(direct_txs) + broadcasted_txs:
+            if existing['vote_by'] == vote_by:
+                if round_number is None or existing.get('round_number') == round_number:
+                    return True
+        return False
+
+    def vote_transaction_exists(self, tx, queue):
+        vote_by = tx['vote_by']
+        round_number = tx.get('round_number', None)
+
+        existed_vote_txs = queue.values()
+
+        for existing in list(existed_vote_txs):
+            if existing['vote_by'] == vote_by:
+                if round_number is None or existing.get('round_number') == round_number:
+                    return True
+        return False
+    
+    def return_accepted_miner_broadcasted_worker_vote_transactions(self):
+        return self.accepted_miner_broadcasted_worker_vote_transactions
         
-    def return_unordered_arrival_time_accepted_worker_validated_candidate_transactions(self):
-        return self.unordered_arrival_time_accepted_worker_validated_candidate_transactions
+    def return_unordered_arrival_time_accepted_worker_vote_transactions(self):
+        return self.unordered_arrival_time_accepted_worker_vote_transactions
+    
+    
+    def set_vote_transactions_for_final_mining_queue(self, final_transactions_arrival_queue):
+        seen = set()
+        unique_vote_transactions = []
+
+        for arrival_time, tx in final_transactions_arrival_queue:
+            vote_by = (tx["vote_by"], tx.get("round_number", 0))  # 比如 worker 的 id 或标识
+
+            if vote_by not in seen:
+                seen.add(vote_by)
+                unique_vote_transactions.append((arrival_time, tx))
+
+        self.final_vote_transactions_queue_to_mine = unique_vote_transactions
 
     ''' Step 8: miners do self and cross-verification (verify signature) by the order of transaction arrival time 
     and record the transactions in the candidate block according to the limit size. 
     Also mine and propagate the block.'''    
 
-    def return_final_candidate_transactions_mining_queue(self):
-        return self.final_candidate_transactions_queue_to_mine
+    def return_final_vote_transactions_queue_to_mine(self):
+        return self.final_vote_transactions_queue_to_mine
 
     def return_miner_acception_wait_time(self):
         return self.miner_acception_wait_time
@@ -774,7 +1105,7 @@ class Device:
             print(f"miner {self.idx} has computation power 0 and will not be able to verify this transaction in time")
             return False, None
         else:
-            transaction_worker_idx = transaction_to_verify['validation_done_by']
+            transaction_worker_idx = transaction_to_verify['vote_by']
             if transaction_worker_idx in self.black_list:
                 print(f"{transaction_worker_idx} is in miner's blacklist. Trasaction won't get verified.")
                 return False, None
@@ -789,14 +1120,14 @@ class Device:
                 hash = int.from_bytes(sha256(str(sorted(transaction_before_signed.items())).encode('utf-8')).digest(), byteorder='big')
                 hashFromSignature = pow(signature, pub_key, modulus)
                 if hash == hashFromSignature:
-                    print(f"Signature of transaction from worker {transaction_worker_idx} is verified by {self.role} {self.idx}!")
+                    # print(f"Signature of vote transaction from worker {transaction_worker_idx} is verified by {self.role} {self.idx}!")
                     verification_time = (time.time() - verification_time)/self.computation_power
                     return verification_time, True
                 else:
-                    print(f"Signature invalid. Transaction from worker {transaction_worker_idx} is NOT verified.")
+                    print(f"Signature invalid. VOTE Transaction from worker {transaction_worker_idx} is NOT verified.")
                     return (time.time() - verification_time)/self.computation_power, False
             else:
-                print(f"Signature of transaction from worker {transaction_worker_idx} is verified by {self.role} {self.idx}!")
+                # print(f"Signature of vote transaction from worker {transaction_worker_idx} is verified by {self.role} {self.idx}!")
                 verification_time = (time.time() - verification_time)/self.computation_power
                 return verification_time, True
 
@@ -822,7 +1153,6 @@ class Device:
     #     return mined_block
 
     #TODO find the leader among miners
-        #TODO find the leader among miners
     # def proof_of_endorsement(self, candidate_block):
     #     candidate_block.set_mined_by(self.idx)
     #     transactions_in_candidate_block = candidate_block.return_transactions() 
@@ -848,10 +1178,53 @@ class Device:
             else:
                 transaciton['average_accuracy_of_this_candidate_model'] = 0
         sorted_valid_sig_transacitons = sorted(valid_sig_transacitons, key=lambda x: x['average_accuracy_of_this_candidate_model'], reverse=True)
-        leader_idx = sorted_valid_sig_transacitons[0]['miner_idx']
+        leader_idx = sorted_valid_sig_transacitons[0]['device_idx']
         max_candidate_model_accuracy = sorted_valid_sig_transacitons[0]['average_accuracy_of_this_candidate_model']
 
-        return leader_idx, max_candidate_model_accuracy, sorted_valid_sig_transacitons       
+        return leader_idx, max_candidate_model_accuracy, sorted_valid_sig_transacitons   
+
+
+    def select_leader(self, vote_transactions):
+        """
+        根据投票交易选出 Leader 矿工
+        
+        Args:
+            vote_transactions (list): 投票交易列表，每个交易包含 'vote' 字段
+            
+        Returns:
+            tuple: (leader_id, leader_avg_accuracy, sorted_miners)
+                - leader_id: 当选的矿工 ID
+                - leader_avg_accuracy: Leader 的平均模型精度
+                - sorted_miners: 按平均精度降序排列的矿工列表，格式 [(miner_id, avg_accuracy), ...]
+        """
+        # 统计每个矿工的所有精度评分
+        miner_accuracy_map = defaultdict(list)
+        for tx in vote_transactions:
+            for miner_id, accuracy in tx["vote"]:
+                miner_accuracy_map[miner_id].append(accuracy)
+        
+        # 计算每个矿工的平均精度
+        avg_accuracy_map = {
+            miner_id: sum(acc_list)/len(acc_list)
+            for miner_id, acc_list in miner_accuracy_map.items()
+        }
+        
+        # 如果没有有效数据，返回空值
+        if not avg_accuracy_map:
+            return None, 0.0, []
+        
+        # 找出平均精度最高的 Leader
+        leader_id = max(avg_accuracy_map, key=lambda k: avg_accuracy_map[k])
+        leader_avg = avg_accuracy_map[leader_id]
+        
+        # 生成按平均精度降序排列的列表
+        sorted_miners = sorted(
+            avg_accuracy_map.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        return leader_id, leader_avg, sorted_miners    
 
     def sign_block(self, block_to_sign):
         block_to_sign.set_signature(self.sign_msg(block_to_sign.__dict__))
@@ -862,7 +1235,7 @@ class Device:
     def set_mined_block(self, mined_block):
         self.mined_block = mined_block
 
-    def propagated_the_block(self, propagating_time_point, block_to_propagate):
+    def propagate_block(self, block_to_propagate, propagating_time_point):
         for peer in self.peer_list:
             if peer.is_online():
                 if peer.return_role() == "miner":
@@ -940,7 +1313,7 @@ class Device:
                     return False, False
         # check if mined by leader
         recorded_transactions = block_to_verify.return_transactions()
-        leader_idx = recorded_transactions['valid_worker_sig_transacitons'][0]['miner_idx']
+        leader_idx = recorded_transactions['valid_worker_sig_transacitons'][0]['device_idx']
         if sending_miner != leader_idx:
             print(f"The block sent by miner {sending_miner} is not mined by the leader {leader_idx}. Block not verified and won't be added. Device needs to resync chain next round.")
             return False, False
@@ -1057,8 +1430,8 @@ class Device:
                 for valid_worker_sig_miner_transaciton in valid_worker_sig_transacitons_in_block:
                     # verify miner's signature
                     if self.verify_miner_transaction_by_signature(valid_worker_sig_miner_transaciton, mined_by):###check def verify_miner_transaction_by_signature
-                        miner_device_idx = valid_worker_sig_miner_transaciton['miner_idx'] # Extract miner Device Index
-                        aggregate_local_updates_info = valid_worker_sig_miner_transaciton['aggregate_local_updates_info'] # [{'worker_device_idx':post_validation_transaction['worker_device_idx'], "local_updates_rewards": post_validation_transaction["local_updates_rewards"], "validation_rewards": post_validation_transaction["validation_rewards"],"validation_done_by":post_validation_transaction["validation_done_by”}]
+                        miner_device_idx = valid_worker_sig_miner_transaciton['device_idx'] # Extract miner Device Index
+                        aggregate_local_updates_info = valid_worker_sig_miner_transaciton['aggregate_local_updates_info'] # [{'device_idx':post_validation_transaction['device_idx'], "local_updates_rewards": post_validation_transaction["local_updates_rewards"], "validation_rewards": post_validation_transaction["validation_rewards"],"validation_done_by":post_validation_transaction["validation_done_by”}]
                         supported_workers = valid_worker_sig_miner_transaciton['supported_workers'] #[{this_candidate_tx_info},{this_candidate_tx_info}]
                         opposed_workers = valid_worker_sig_miner_transaciton['opposed_workers']
                         
@@ -1072,7 +1445,7 @@ class Device:
                                 self_rewards_accumulator += validate_worker_record['validation_reward_for_worker']
                         # give worker update rewards and give miner validate rewards
                         for local_update_info in aggregate_local_updates_info:
-                            if self.idx == local_update_info["worker_device_idx"]:
+                            if self.idx == local_update_info["device_idx"]:
                                 self_rewards_accumulator += local_update_info["local_updates_rewards"]
                             if self.idx == local_update_info["validation_done_by"]:
                                 self_rewards_accumulator += local_update_info["validation_rewards"]
