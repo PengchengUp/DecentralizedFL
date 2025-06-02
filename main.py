@@ -374,7 +374,7 @@ if __name__=="__main__":
 		
 		''' workers and miners take turns to perform jobs '''
 
-		print(''' ======Step 0 - workers assign associated miners.======\n''')
+		print(''' ======Step 0 - workers assign associated miners.======''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			# resync chain(block could be dropped due to fork from last round)
@@ -391,7 +391,7 @@ if __name__=="__main__":
 				else:
 					print(f"Cannot find a qualified miner in {worker.return_idx()} peer list.")
 
-		print(''' ======Step 1 - workers do local updates.======\n''')
+		print(''' ======Step 1 - workers do local updates.======''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			if worker.online_switcher():
@@ -400,7 +400,7 @@ if __name__=="__main__":
 			else:
 				print(f"worker {worker.return_idx()} offline and unable do local updates")
 
-		print(''' ======Step 2 - Miners accept local updates and broadcast to other miners.======\n''')
+		print(''' ======Step 2 - Miners accept local updates and broadcast to other miners.======''')
 		for miner_idx, miner in enumerate(miners_this_round, start=1):
 			print(f"\r{miner.return_idx()} - Miner {miner_idx}/{len(miners_this_round)} processing...")
 
@@ -468,7 +468,7 @@ if __name__=="__main__":
 			miner.set_transaction_for_final_validating_queue(sorted(combined_queue.items()))
 			print(f"\r{miner.return_idx()} finalized {len(combined_queue)} unique transactions for validation.")
 
-		print('''====== Step 3 - miners do self and cross-validation ======.\n''')
+		print('''====== Step 3 - miners do self and cross-validation ======''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
 			final_transactions_arrival_queue = miner.return_final_transactions_validating_queue()
@@ -498,7 +498,7 @@ if __name__=="__main__":
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
 
-		print(''' Step 4 - miners aggregate their candidate models using the validated local updates from workers.\n''')
+		print('''====== Step 4 - miners aggregate their candidate models using the validated local updates from workers.======''')
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
 			if miner.online_switcher():
@@ -515,7 +515,7 @@ if __name__=="__main__":
 			else:
 				print(f"miner {miner.return_idx()} {miner_iter+1}/{len(miners_this_round)} is offline and unable to aggregate the candidate model.")
 
-		print(''' ======Step 5 - Workers accept candidate models and broadcast to other workers.======\n''')
+		print(''' ======Step 5 - Workers accept candidate models and broadcast to other workers.======''')
 		for worker_idx, worker in enumerate(workers_this_round, start=1):
 			print(f"\r{worker.return_idx()} - Worker {worker_idx}/{len(workers_this_round)} processing...")
 
@@ -585,7 +585,7 @@ if __name__=="__main__":
 			print(f"\r{worker.return_idx()} finalized {len(combined_queue)} unique candidates for validation.")
 
 
-		print('''====== Step 6 - workers verify miners' signature and candidate models.======\n''')
+		print('''====== Step 6 - workers verify miners' signature and candidate models.======''')
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			final_candidate_arrival_queue = worker.return_final_candidate_validating_queue()
@@ -615,7 +615,7 @@ if __name__=="__main__":
 			else:
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} did not receive any candidate from worker or miner in this round.")
 
-		print('''======Step 7 - Miners accept vote transaction and broadcast to other miners.======\n''')
+		print('''======Step 7 - Miners accept vote transaction and broadcast to other miners.======''')
 		for miner_idx, miner in enumerate(miners_this_round, start=1):
 			print(f"\r{miner.return_idx()} - Miner {miner_idx}/{len(miners_this_round)} processing...")
 
@@ -682,7 +682,7 @@ if __name__=="__main__":
 			miner.set_vote_transactions_for_final_mining_queue(sorted(combined_vote_queue.items()))
 			print(f"\r{miner.return_idx()} finalized {len(combined_vote_queue)} unique vote transactions for mining.")
 
-		print(''' Step 8 - Miners verify signature of vote transactions and elect leader.\n''')
+		print('''====== Step 8 - Miners verify signature of vote transactions and elect leader.======''')
 		for miner_idx, miner in enumerate(miners_this_round, start=1):
 			miner_id = miner.return_idx()
 			print(f"\r{miner_id} - Processing miner {miner_idx}/{len(miners_this_round)}")
@@ -755,7 +755,8 @@ if __name__=="__main__":
 				candidate_block = Block(
 					idx=block_index,
 					transactions=valid_transactions,
-					global_model=miner.candidate_model_dict,
+					global_model=miner.candidate_model_dict["candidate_model_params"],
+					rewards_allocation = miner.set_rewards_allocation(),
 					miner_rsa_pub_key=miner.return_rsa_pub_key()
 				)
 
@@ -765,8 +766,7 @@ if __name__=="__main__":
 					# will mine the genesis block
 					candidate_block.set_previous_block_hash(None)
 				else:
-					candidate_block.set_previous_block_hash(last_block.compute_hash(hash_entire_block=True))
-				candidate_block.set_mined_by(miner.return_idx())
+					candidate_block.set_previous_block_hash(last_block.return_hash())
 				miner.sign_block(candidate_block)
 				current_hash = candidate_block.compute_hash()
 				candidate_block.set_hash(current_hash)
@@ -780,7 +780,7 @@ if __name__=="__main__":
 					
 				mining_time = (time.time() - start_time) / comp_power
 				miner.set_block_generation_time_point(mining_time)
-				
+				miner.set_unconfirmed_candidate_block(candidate_block)
 				# 传播区块
 				if miner.online_switcher():
 					print(f"{miner_id} - Mined block in {mining_time:.2f}s | Broadcasting...")
@@ -790,9 +790,8 @@ if __name__=="__main__":
 			else:
 				print(f"{miner_id} - Follower | Leader: {leader_id}")
 				miner.set_mined_rewards(0)
-		exit()
 
-		print(''' Step 9 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block. \n''')
+		print('''====== Step 9 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block.======''')
 		forking_happened = False
 		# comm_round_block_gen_time regarded as the time point when the winning miner mines its block, 
 		#calculated from the beginning of the round. If there is forking in PoW or rewards info out of sync in PoS, 
@@ -812,29 +811,9 @@ if __name__=="__main__":
 					if added: #or if miner.return_the_added_block():
 						# requesting devices in its associations to download this block
 						miner.request_to_download(verified_block, block_arrival_time + verification_time)
-						break	
 				miner.add_to_round_end_time(block_arrival_time + verification_time)
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} does not receive a propagated block and has not mined its own block yet.")
-
-		for worker_iter in range(len(workers_this_round)):
-			worker = workers_this_round[worker_iter]
-			ordered_downloaded_block_processing_queue = sorted(worker.return_unordered_downloaded_block_processing_queue().items())
-			if ordered_downloaded_block_processing_queue:
-				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} processing the downloaded block...")
-				for (arrival_time, downloaded_block) in ordered_downloaded_block_processing_queue:
-					if worker.online_switcher():
-						verified_block, verification_time = worker.verify_block(downloaded_block, downloaded_block.return_mined_by())
-						if verified_block:
-							worker.add_block(verified_block)
-							worker.set_block_download_time(arrival_time + verification_time)
-							break
-					else:
-						print(f"Unfortunately, worker {worker.return_idx()} goes offline while processing this downloaded block.")
-						worker.set_block_download_time(arrival_time)
-						break
-			else:
-				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} does not receive any block.")
   
 		# CHECK FOR FORKING
 		added_blocks_miner_set = set()
@@ -858,7 +837,7 @@ if __name__=="__main__":
 		else:
 			print("No forking event happened.")
 		
-		print(''' Step 9.5 last step - process the added block - 1.collect usable candidate models\n 2.malicious nodes identification\n 3.get rewards\n This code block is skipped if no valid block was generated in this round''')
+		print('''====== Step 10 - process the added block ======\n 1.collect usable candidate models\n 2.malicious nodes identification\n 3.get rewards\n This code block is skipped if no valid block was generated in this round''')
 		all_devices_round_ends_time = []
 		for device in devices_list:
 			if device.return_the_added_block() and device.online_switcher():
@@ -951,3 +930,131 @@ if __name__=="__main__":
 			snapshot_file_path = f"{network_snapshot_save_path}/snapshot_r_{comm_round}"
 			print(f"Saving network snapshot to {snapshot_file_path}")
 			pickle.dump(devices_in_network, open(snapshot_file_path, "wb"))
+
+		# print('''====== Step 10 - Process Added Block ======\n''')
+		# print('1. Collect usable candidate models\n2. Malicious nodes identification\n3. Get rewards\n')
+
+		# # ====== 区块处理阶段 ======
+		# all_devices_round_ends_time = []
+		# processed_blocks = {}  # 存储已处理区块的哈希，避免重复处理
+
+		# for device in devices_list:
+		# 	# 只处理在线设备且有有效区块的设备
+		# 	if not device.online_switcher() or not device.return_the_added_block():
+		# 		continue
+				
+		# 	block = device.return_the_added_block()
+		# 	block_hash = block.compute_hash()
+			
+		# 	# 检查区块是否已被处理
+		# 	if block_hash in processed_blocks:
+		# 		print(f"Device {device.return_idx()} skipping already processed block {block_hash[:6]}...")
+		# 		continue
+				
+		# 	# 处理区块
+		# 	print(f"Device {device.return_idx()} processing block {block_hash[:6]}...")
+		# 	processing_time = device.process_block(
+		# 		block, 
+		# 		log_files_folder_path, 
+		# 		conn, 
+		# 		conn_cursor
+		# 	)
+			
+		# 	# 记录处理时间
+		# 	device.other_tasks_at_the_end_of_comm_round(comm_round, log_files_folder_path)
+		# 	device.add_to_round_end_time(processing_time)
+		# 	all_devices_round_ends_time.append(device.return_round_end_time())
+			
+		# 	# 标记区块已处理
+		# 	processed_blocks[block_hash] = True
+
+		# # ====== 日志记录阶段 ======
+		# print(''' Logging Accuracies and Stakes by Devices ''')
+		# accuracy_log_path = f"{log_files_folder_path_comm_round}/accuracy_comm_{comm_round}.txt"
+		# stake_log_path = f"{log_files_folder_path_comm_round}/stake_comm_{comm_round}.txt"
+
+		# with open(accuracy_log_path, "w") as acc_file, open(stake_log_path, "w") as stake_file:
+		# 	for device in devices_list:
+		# 		# 记录准确率
+		# 		accuracy = device.validate_model_weights()
+		# 		device.accuracy_this_round = accuracy
+		# 		is_malicious = "M" if device.return_is_malicious() else "B"
+		# 		acc_file.write(f"{device.return_idx()},{device.return_role()},{is_malicious},{accuracy:.4f}\n")
+				
+		# 		# 记录质押
+		# 		stake = device.return_stake()
+		# 		stake_file.write(f"{device.return_idx()},{device.return_role()},{is_malicious},{stake:.4f}\n")
+
+		# # ====== 区块生成时间记录 ======
+		# comm_round_spent_time = time.time() - comm_round_start_time
+		# fork_log_path = f"{log_files_folder_path}/forking_and_no_valid_block_log.txt"
+
+		# with open(accuracy_log_path, "a") as file:
+		# 	# 记录区块生成时间
+		# 	if comm_round_block_gen_time:
+		# 		max_block_time = max(comm_round_block_gen_time)
+		# 		file.write(f"comm_round_block_gen_time: {max_block_time:.4f}\n")
+		# 	else:
+		# 		no_block_msg = "No valid block generated this round"
+		# 		print(no_block_msg)
+		# 		file.write(f"comm_round_block_gen_time: {no_block_msg}\n")
+		# 		# 记录到分叉日志
+		# 		with open(fork_log_path, 'a') as fork_file:
+		# 			fork_file.write(f"No valid block in round {comm_round}\n")
+			
+		# 	# 记录最慢设备结束时间
+		# 	if all_devices_round_ends_time:
+		# 		slowest_time = max(all_devices_round_ends_time)
+		# 		file.write(f"slowest_device_round_ends_time: {slowest_time:.4f}\n")
+		# 	else:
+		# 		file.write("slowest_device_round_ends_time: No devices processed blocks\n")
+			
+		# 	# 记录共识机制和分叉情况
+		# 	file.write(f"mining_consensus: {mining_consensus} {args.get('pow_difficulty', 'N/A')}\n")
+		# 	file.write(f"forking_happened: {forking_happened}\n")
+		# 	file.write(f"comm_round_spent_time: {comm_round_spent_time:.2f}\n")
+			
+		# 	# 记录区块矿工（如果没有分叉）
+		# 	if not forking_happened:
+		# 		legitimate_block = next((d.return_the_added_block() for d in devices_list if d.return_the_added_block()), None)
+		# 		if legitimate_block:
+		# 			miner_id = legitimate_block.return_mined_by()
+		# 			miner_device = devices_in_network.devices_set.get(miner_id)
+		# 			if miner_device:
+		# 				is_malicious = "M" if miner_device.return_is_malicious() else "B"
+		# 				file.write(f"block_mined_by: {miner_id},{is_malicious}\n")
+		# 			else:
+		# 				file.write(f"block_mined_by: {miner_id} (device not found)\n")
+		# 		else:
+		# 			file.write("block_mined_by: no valid block generated\n")
+		# 	else:
+		# 		file.write("block_mined_by: Forking occurred\n")
+
+		# # 提交数据库事务
+		# conn.commit()
+
+		# # ====== 资源清理和快照 ======
+		# # 清理区块中的交易数据（如果需要）
+		# if args.get('destroy_tx_in_block', False):
+		# 	for device in devices_list:
+		# 		last_block = device.return_blockchain_object().return_last_block()
+		# 		if last_block:
+		# 			last_block.free_tx()
+
+		# # 保存网络快照
+		# if args.get('save_network_snapshots', False) and (comm_round == 1 or comm_round % args.get('save_freq', 10) == 0):
+		# 	snapshot_dir = network_snapshot_save_path
+		# 	os.makedirs(snapshot_dir, exist_ok=True)
+			
+		# 	# 清理旧快照
+		# 	if args.get('save_most_recent', 0) > 0:
+		# 		snapshots = sorted(glob.glob(f"{snapshot_dir}/snapshot_r_*"), key=os.path.getmtime)
+		# 		while len(snapshots) >= args['save_most_recent']:
+		# 			os.remove(snapshots.pop(0))
+			
+		# 	# 保存新快照
+		# 	snapshot_path = f"{snapshot_dir}/snapshot_r_{comm_round}.pkl"
+		# 	print(f"Saving network snapshot to {snapshot_path}")
+		# 	with open(snapshot_path, "wb") as f:
+		# 		pickle.dump(devices_in_network, f)
+		exit()
