@@ -6,7 +6,7 @@ from hashlib import sha256
 from collections import OrderedDict
 
 class Block:
-	def __init__(self, idx, previous_block_hash=None, transactions=None, global_model = dict(), rewards_allocation = dict(), nonce=0, miner_rsa_pub_key=None, mined_by=None, mining_rewards=None, hash=None, signature=None):
+	def __init__(self, idx, previous_block_hash=None, transactions=None, global_model = None, rewards_allocation = dict(), nonce=0, miner_rsa_pub_key=None, mined_by=None, mining_rewards=None, hash=None, signature=None):
 		self._idx = idx
 		self._previous_block_hash = previous_block_hash
 		self._transactions = transactions

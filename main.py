@@ -35,7 +35,7 @@ from pathlib import Path
 import shutil
 import torch
 import torch.nn.functional as F
-from Models import Mnist_2NN, Mnist_CNN, Mnist_CNN_Simplified, Cifar10_CNN, Cifar10_CNN_Simplified, Cifar100_CNN_Simplified, Cifar100_ResNet
+from Models import Mnist_2NN, Mnist_CNN, Mnist_CNN_Simplified, Cifar10_CNN, Cifar10_CNN_Simplified, Cifar100_CNN, Cifar100_ResNet
 from Device import Device, DevicesInNetwork
 from Block import Block
 from Blockchain import Blockchain
@@ -62,7 +62,7 @@ parser.add_argument('-sm', '--save_most_recent', type=int, default=1, help='in c
 # FL attributes
 parser.add_argument('-aggm','--aggregation_method', type=str, default='FedAvg', help='aggregation method to be used, by default implementing FedAvg')
 parser.add_argument('-data', '--dataset', type=str, default='mnist')
-parser.add_argument('-B', '--batchsize', type=int, default=10, help='local train batch size')
+parser.add_argument('-B', '--batchsize', type=int, default=16, help='local train batch size')
 parser.add_argument('-mn', '--model_name', type=str, default='mnist_cnn', help='the model to train')
 parser.add_argument('-lr', "--learning_rate", type=float, default=0.01, help="learning rate, use value from origin paper as default")
 parser.add_argument('-op', '--optimizer', type=str, default="SGD", help='optimizer to be used, by default implementing stochastic gradient descent')
@@ -72,7 +72,7 @@ parser.add_argument('-nd', '--num_devices', type=int, default=20, help='numer of
 parser.add_argument('-st', '--shard_test_data', type=int, default=0, help='it is easy to see the global models are consistent across devices when the test dataset is NOT sharded')
 # parser.add_argument('-nm', '--num_malicious', type=int, default=0, help="number of malicious nodes in the network. malicious node's data sets will be introduced Gaussian noise")
 parser.add_argument('-nm', '--num_malicious', type=str, default='0,0', help="number of malicious nodes in the network. order by worker and miner. e.g. 4,1 assign 4 malicious workers and 1 malicious miners.")
-parser.add_argument('-nv', '--noise_variance', type=int, default=1, help="noise variance level of the injected Gaussian Noise")
+parser.add_argument('-nv', '--noise_variance', type=int, default=0.5, help="noise variance level of the injected Gaussian Noise")
 parser.add_argument('-le', '--default_local_epochs', type=int, default=2, help='local train epoch. Train local model by this same num of epochs for each worker, if -mt is not specified')
 
 # blockchain system consensus attributes
@@ -222,9 +222,9 @@ if __name__=="__main__":
 		elif args['model_name'] == 'mnist_cnn':
 			net = Mnist_CNN_Simplified()#Mnist_CNN()
 		elif args['model_name'] == 'cifar10_cnn':
-			net = Cifar10_CNN_Simplified()#Cifar10_CNN()
+			net = Cifar10_CNN()#Cifar10_CNN_Simplified()
 		elif args['model_name'] == 'cifar100_cnn':
-			net = Cifar100_CNN_Simplified()
+			net = Cifar100_CNN()#Cifar100_CNN_Simplified()
 		elif args['model_name'] == 'cifar100_resnet':
 			net = Cifar100_ResNet()
 		else:
@@ -268,11 +268,11 @@ if __name__=="__main__":
 
 		# 11. build logging files/database path
 		# create log files
-		open(f"{log_files_folder_path}/correctly_kicked_workers.txt", 'w').close()
-		open(f"{log_files_folder_path}/mistakenly_kicked_workers.txt", 'w').close()
-		open(f"{log_files_folder_path}/false_positive_malious_nodes_inside_slipped.txt", 'w').close()
-		open(f"{log_files_folder_path}/false_negative_good_nodes_inside_victims.txt", 'w').close()
-		open(f"{log_files_folder_path}/kicked_lazy_workers.txt", 'w').close()
+		# open(f"{log_files_folder_path}/correctly_kicked_workers.txt", 'w').close()
+		# open(f"{log_files_folder_path}/mistakenly_kicked_workers.txt", 'w').close()
+		# open(f"{log_files_folder_path}/false_positive_malious_nodes_inside_slipped.txt", 'w').close()
+		# open(f"{log_files_folder_path}/false_negative_good_nodes_inside_victims.txt", 'w').close()
+		# open(f"{log_files_folder_path}/kicked_lazy_workers.txt", 'w').close()
 
 		# 12. setup the mining consensus #consensus
 		mining_consensus = args['consensus']
@@ -392,13 +392,17 @@ if __name__=="__main__":
 					print(f"Cannot find a qualified miner in {worker.return_idx()} peer list.")
 
 		print(''' ======Step 1 - workers do local updates.======''')
+		local_update_time = []
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			if worker.online_switcher():
 				worker.worker_local_update(rewards, log_files_folder_path_comm_round, comm_round, local_epochs=args['default_local_epochs'])#get worker.local_update_time, worker.local_train_parameters, worker.local_updates_rewards_per_transaction
 				worker.return_local_updates_and_signature(comm_round) #get worker.local_updates_dict, i.e., local update transaction 
+				local_update_time.append(worker.local_update_time)
 			else:
 				print(f"worker {worker.return_idx()} offline and unable do local updates")
+		with open(f"{log_files_folder_path}/time_used.txt", "a") as file:
+			file.write(f"[ROUND {comm_round}]-local_update_time : {max(local_update_time)}.\n")
 
 		print(''' ======Step 2 - Miners accept local updates and broadcast to other miners.======''')
 		for miner_idx, miner in enumerate(miners_this_round, start=1):
@@ -469,6 +473,7 @@ if __name__=="__main__":
 			print(f"\r{miner.return_idx()} finalized {len(combined_queue)} unique transactions for validation.")
 
 		print('''====== Step 3 - miners do self and cross-validation ======''')
+		miner_verify_local_update_time = []
 		for miner_iter in range(len(miners_this_round)):
 			miner = miners_this_round[miner_iter]
 			final_transactions_arrival_queue = miner.return_final_transactions_validating_queue()
@@ -494,9 +499,12 @@ if __name__=="__main__":
 							print(f"A validation process has been done for the transaction from worker {post_validation_unconfirmmed_transaction['device_idx']} by miner {miner.return_idx()}")
 					else:
 						print(f"A validation process is skipped for the transaction from worker {post_validation_unconfirmmed_transaction['device_idx']} by miner {miner.return_idx()} due to miner offline.")
-				print(f"The validation process has been done for total {len(final_transactions_arrival_queue)} transactions by miner {miner.return_idx()}.")			
+				print(f"The validation process has been done for total {len(final_transactions_arrival_queue)} transactions by miner {miner.return_idx()}.")
+				miner_verify_local_update_time.append(local_validation_time+validation_time)			
 			else:
 				print(f"{miner.return_idx()} - miner {miner_iter+1}/{len(miners_this_round)} did not receive any transaction from worker or miner in this round.")
+		with open(f"{log_files_folder_path}/time_used.txt", "a") as file:
+			file.write(f"[ROUND {comm_round}]-miner_verify_local_update_time : {max(miner_verify_local_update_time)}.\n")
 
 		print('''====== Step 4 - miners aggregate their candidate models using the validated local updates from workers.======''')
 		for miner_iter in range(len(miners_this_round)):
@@ -586,6 +594,7 @@ if __name__=="__main__":
 
 
 		print('''====== Step 6 - workers verify miners' signature and candidate models.======''')
+		worker_verify_candidate_model_time = []
 		for worker_iter in range(len(workers_this_round)):
 			worker = workers_this_round[worker_iter]
 			final_candidate_arrival_queue = worker.return_final_candidate_validating_queue()
@@ -612,8 +621,11 @@ if __name__=="__main__":
 						print(f"A candidate validation process is skipped from miner {post_validation_candidate['device_idx']} by worker {worker.return_idx()} due to worker offline.")
 				if votes:
 					worker.set_vote_transaction(votes, comm_round, total_validation_time)
+					worker_verify_candidate_model_time.append(total_validation_time)
 			else:
 				print(f"{worker.return_idx()} - worker {worker_iter+1}/{len(workers_this_round)} did not receive any candidate from worker or miner in this round.")
+		with open(f"{log_files_folder_path}/time_used.txt", "a") as file:
+			file.write(f"[ROUND {comm_round}]-worker_verify_candidate_model_time : {max(worker_verify_candidate_model_time)}.\n")
 
 		print('''======Step 7 - Miners accept vote transaction and broadcast to other miners.======''')
 		for miner_idx, miner in enumerate(miners_this_round, start=1):
@@ -683,6 +695,7 @@ if __name__=="__main__":
 			print(f"\r{miner.return_idx()} finalized {len(combined_vote_queue)} unique vote transactions for mining.")
 
 		print('''====== Step 8 - Miners verify signature of vote transactions and elect leader.======''')
+		consensus_time = []
 		for miner_idx, miner in enumerate(miners_this_round, start=1):
 			miner_id = miner.return_idx()
 			print(f"\r{miner_id} - Processing miner {miner_idx}/{len(miners_this_round)}")
@@ -740,6 +753,12 @@ if __name__=="__main__":
 				miner.set_mined_rewards(0)
 				continue
 			
+			# 计算共识时间
+			start_time = time.time()
+			comp_power = miner.return_computation_power()
+			if comp_power <= 0:
+				print(f"{miner_id} - Zero computation power")
+				continue
 			# 执行选举算法
 			leader_id, max_accuracy, sorted_txs = miner.select_leader(valid_transactions)
 			
@@ -770,17 +789,11 @@ if __name__=="__main__":
 				miner.sign_block(candidate_block)
 				current_hash = candidate_block.compute_hash()
 				candidate_block.set_hash(current_hash)
-				
-				# 计算挖矿时间
-				start_time = time.time()
-				comp_power = miner.return_computation_power()
-				if comp_power <= 0:
-					print(f"{miner_id} - Zero computation power")
-					continue
 					
 				mining_time = (time.time() - start_time) / comp_power
 				miner.set_block_generation_time_point(mining_time)
 				miner.set_unconfirmed_candidate_block(candidate_block)
+				consensus_time.append(mining_time)
 				# 传播区块
 				if miner.online_switcher():
 					print(f"{miner_id} - Mined block in {mining_time:.2f}s | Broadcasting...")
@@ -790,6 +803,11 @@ if __name__=="__main__":
 			else:
 				print(f"{miner_id} - Follower | Leader: {leader_id}")
 				miner.set_mined_rewards(0)
+				mining_time = (time.time() - start_time) / comp_power
+				consensus_time.append(mining_time)
+				miner.set_block_generation_time_point(mining_time)
+		with open(f"{log_files_folder_path}/time_used.txt", "a") as file:
+			file.write(f"[ROUND {comm_round}]-consensus_time : {max(consensus_time)}.\n")
 
 		print('''====== Step 9 - miners decide if adding a propagated block or its own mined block as the legitimate block, and request its associated devices to download this block.======''')
 		forking_happened = False
@@ -930,131 +948,3 @@ if __name__=="__main__":
 			snapshot_file_path = f"{network_snapshot_save_path}/snapshot_r_{comm_round}"
 			print(f"Saving network snapshot to {snapshot_file_path}")
 			pickle.dump(devices_in_network, open(snapshot_file_path, "wb"))
-
-		# print('''====== Step 10 - Process Added Block ======\n''')
-		# print('1. Collect usable candidate models\n2. Malicious nodes identification\n3. Get rewards\n')
-
-		# # ====== 区块处理阶段 ======
-		# all_devices_round_ends_time = []
-		# processed_blocks = {}  # 存储已处理区块的哈希，避免重复处理
-
-		# for device in devices_list:
-		# 	# 只处理在线设备且有有效区块的设备
-		# 	if not device.online_switcher() or not device.return_the_added_block():
-		# 		continue
-				
-		# 	block = device.return_the_added_block()
-		# 	block_hash = block.compute_hash()
-			
-		# 	# 检查区块是否已被处理
-		# 	if block_hash in processed_blocks:
-		# 		print(f"Device {device.return_idx()} skipping already processed block {block_hash[:6]}...")
-		# 		continue
-				
-		# 	# 处理区块
-		# 	print(f"Device {device.return_idx()} processing block {block_hash[:6]}...")
-		# 	processing_time = device.process_block(
-		# 		block, 
-		# 		log_files_folder_path, 
-		# 		conn, 
-		# 		conn_cursor
-		# 	)
-			
-		# 	# 记录处理时间
-		# 	device.other_tasks_at_the_end_of_comm_round(comm_round, log_files_folder_path)
-		# 	device.add_to_round_end_time(processing_time)
-		# 	all_devices_round_ends_time.append(device.return_round_end_time())
-			
-		# 	# 标记区块已处理
-		# 	processed_blocks[block_hash] = True
-
-		# # ====== 日志记录阶段 ======
-		# print(''' Logging Accuracies and Stakes by Devices ''')
-		# accuracy_log_path = f"{log_files_folder_path_comm_round}/accuracy_comm_{comm_round}.txt"
-		# stake_log_path = f"{log_files_folder_path_comm_round}/stake_comm_{comm_round}.txt"
-
-		# with open(accuracy_log_path, "w") as acc_file, open(stake_log_path, "w") as stake_file:
-		# 	for device in devices_list:
-		# 		# 记录准确率
-		# 		accuracy = device.validate_model_weights()
-		# 		device.accuracy_this_round = accuracy
-		# 		is_malicious = "M" if device.return_is_malicious() else "B"
-		# 		acc_file.write(f"{device.return_idx()},{device.return_role()},{is_malicious},{accuracy:.4f}\n")
-				
-		# 		# 记录质押
-		# 		stake = device.return_stake()
-		# 		stake_file.write(f"{device.return_idx()},{device.return_role()},{is_malicious},{stake:.4f}\n")
-
-		# # ====== 区块生成时间记录 ======
-		# comm_round_spent_time = time.time() - comm_round_start_time
-		# fork_log_path = f"{log_files_folder_path}/forking_and_no_valid_block_log.txt"
-
-		# with open(accuracy_log_path, "a") as file:
-		# 	# 记录区块生成时间
-		# 	if comm_round_block_gen_time:
-		# 		max_block_time = max(comm_round_block_gen_time)
-		# 		file.write(f"comm_round_block_gen_time: {max_block_time:.4f}\n")
-		# 	else:
-		# 		no_block_msg = "No valid block generated this round"
-		# 		print(no_block_msg)
-		# 		file.write(f"comm_round_block_gen_time: {no_block_msg}\n")
-		# 		# 记录到分叉日志
-		# 		with open(fork_log_path, 'a') as fork_file:
-		# 			fork_file.write(f"No valid block in round {comm_round}\n")
-			
-		# 	# 记录最慢设备结束时间
-		# 	if all_devices_round_ends_time:
-		# 		slowest_time = max(all_devices_round_ends_time)
-		# 		file.write(f"slowest_device_round_ends_time: {slowest_time:.4f}\n")
-		# 	else:
-		# 		file.write("slowest_device_round_ends_time: No devices processed blocks\n")
-			
-		# 	# 记录共识机制和分叉情况
-		# 	file.write(f"mining_consensus: {mining_consensus} {args.get('pow_difficulty', 'N/A')}\n")
-		# 	file.write(f"forking_happened: {forking_happened}\n")
-		# 	file.write(f"comm_round_spent_time: {comm_round_spent_time:.2f}\n")
-			
-		# 	# 记录区块矿工（如果没有分叉）
-		# 	if not forking_happened:
-		# 		legitimate_block = next((d.return_the_added_block() for d in devices_list if d.return_the_added_block()), None)
-		# 		if legitimate_block:
-		# 			miner_id = legitimate_block.return_mined_by()
-		# 			miner_device = devices_in_network.devices_set.get(miner_id)
-		# 			if miner_device:
-		# 				is_malicious = "M" if miner_device.return_is_malicious() else "B"
-		# 				file.write(f"block_mined_by: {miner_id},{is_malicious}\n")
-		# 			else:
-		# 				file.write(f"block_mined_by: {miner_id} (device not found)\n")
-		# 		else:
-		# 			file.write("block_mined_by: no valid block generated\n")
-		# 	else:
-		# 		file.write("block_mined_by: Forking occurred\n")
-
-		# # 提交数据库事务
-		# conn.commit()
-
-		# # ====== 资源清理和快照 ======
-		# # 清理区块中的交易数据（如果需要）
-		# if args.get('destroy_tx_in_block', False):
-		# 	for device in devices_list:
-		# 		last_block = device.return_blockchain_object().return_last_block()
-		# 		if last_block:
-		# 			last_block.free_tx()
-
-		# # 保存网络快照
-		# if args.get('save_network_snapshots', False) and (comm_round == 1 or comm_round % args.get('save_freq', 10) == 0):
-		# 	snapshot_dir = network_snapshot_save_path
-		# 	os.makedirs(snapshot_dir, exist_ok=True)
-			
-		# 	# 清理旧快照
-		# 	if args.get('save_most_recent', 0) > 0:
-		# 		snapshots = sorted(glob.glob(f"{snapshot_dir}/snapshot_r_*"), key=os.path.getmtime)
-		# 		while len(snapshots) >= args['save_most_recent']:
-		# 			os.remove(snapshots.pop(0))
-			
-		# 	# 保存新快照
-		# 	snapshot_path = f"{snapshot_dir}/snapshot_r_{comm_round}.pkl"
-		# 	print(f"Saving network snapshot to {snapshot_path}")
-		# 	with open(snapshot_path, "wb") as f:
-		# 		pickle.dump(devices_in_network, f)
-		exit()

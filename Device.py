@@ -28,6 +28,7 @@ class Device:
         self.loss_func = loss_func
         self.network_stability = network_stability
         self.net = copy.deepcopy(net)
+        self.learning_rate = learning_rate
         if opti == "SGD":
             self.opti = optim.SGD(self.net.parameters(), lr=learning_rate)
         self.dev = dev
@@ -105,10 +106,9 @@ class Device:
         self.block_download_time = None
         self.has_added_block_this_round = False
 
-        ''' For validators '''   
+        ''' For miners '''
         self.accuracies_this_round = {}  
         self.validate_threshold = validate_threshold  
-        ''' For miners '''
         self.validation_rewards_this_round = 0
         self.miner_local_accuracy = None
         self.post_validation_transactions_queue = None or []
@@ -150,7 +150,9 @@ class Device:
         self.local_updates_rewards_per_transaction = 0
         self.local_total_epoch = 0
         self.local_accuracy = 0
-        self.variance_of_noises.clear()
+        # self.variance_of_noises.clear()
+        self.variance_of_noises = None or []
+
         self.worker_associated_miner_set.clear()  
         self.unordered_arrival_time_accepted_miner_candidate.clear()
         self.final_candidate_queue_to_validate.clear()
@@ -219,7 +221,7 @@ class Device:
             print(f"WARNING: {to_add_device.return_idx()} in {self.role} {self.idx}'s black list. Not added by the {self.role}.")
 
     '''Step 1 - workers do local updates'''
-    #TODO change to computation power
+    # TODO change to computation power
     def worker_local_update(self, rewards, log_files_folder_path_comm_round, comm_round, local_epochs=1):
         print(f"\r Worker {self.idx} is doing local_update with computation power {self.computation_power} and link speed {round(self.link_speed,3)} bytes/s")
         self.net.load_state_dict(self.global_parameters, strict=True) #Load the global parameters (model weights) into the worker's neural network
@@ -257,15 +259,17 @@ class Device:
 
         # record accuracies to find good -vh
         with open(f"{log_files_folder_path_comm_round}/worker_final_local_accuracies_comm_{comm_round}.txt", "a") as file:
-            file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node}: {self.validate_model_weights(self.net.state_dict())}\n")
+            file.write(f"{self.return_idx()} {self.return_role()} {is_malicious_node}: {self.validate_model_weights(self.net.state_dict())} with time: {self.local_update_time}\n")
         print(f"\rDone {local_epochs} epoch(s) and total {self.local_total_epoch} epochs")
         self.local_train_parameters = self.net.state_dict()
         self.local_accuracy = self.validate_model_weights(self.net.state_dict())
 
     
     def return_local_updates_and_signature(self, comm_round):
-        # local_total_accumulated_epochs_this_round also stands for the lastest_epoch_seq for this transaction(local params are calculated after this amount of local epochs in this round)
-        # last_local_iteration(s)_spent_time may be recorded to determine calculating time? But what if nodes do not wish to disclose its computation power
+        '''
+        local_total_accumulated_epochs_this_round also stands for the lastest_epoch_seq for this transaction(local params are calculated after this amount of local epochs in this round)
+        last_local_iteration(s)_spent_time may be recorded to determine calculating time? But what if nodes do not wish to disclose its computation power
+        '''
         self.local_updates_dict = {'device_idx': self.idx, 'round_number': comm_round, "local_updates_params": copy.deepcopy(self.local_train_parameters), 
                                    "local_updates_rewards": self.local_updates_rewards_per_transaction, "local_iteration(s)_spent_time": self.local_update_time, 
                                    "local_total_accumulated_epochs_this_round": self.local_total_epoch, "worker_rsa_pub_key": self.return_rsa_pub_key()}
@@ -579,7 +583,8 @@ class Device:
         aggregated_weights = self._aggregate_model_parameters(benign_updates, method=aggregation_method)
 
         # Step 3: 更新候选模型
-        self.candidate_parameters.update(aggregated_weights)
+        # self.candidate_parameters.update(aggregated_weights)
+        self.candidate_parameters = copy.deepcopy(aggregated_weights)
         num_participants = len(benign_updates)
         self.aggregate_rewards += rewards * num_participants
 
@@ -1350,7 +1355,7 @@ class Device:
         #It also verifies that the PoW matches the hash of the block (block_to_check.compute_hash()).
         return hash == block_to_check.compute_hash() 
 
-    def append_block(self, block_to_add):
+    def add_block(self, block_to_add):
         # if self.has_added_block_this_round:
         #     print(f"{self.role} {self.idx} has already added a block this round. Skipping.")
         #     return
@@ -1359,13 +1364,13 @@ class Device:
         print(f"{self.idx} - {self.role} has appended a block to its chain. Chain length: {self.return_blockchain_object().return_chain_length()}")
         self.the_added_block = block_to_add
 
-    def add_block(self, block_to_add):
-        self.return_blockchain_object().append_block(block_to_add)
-        print(f"d_{self.idx.split('_')[-1]} - {self.role[0]} has appened a block to its chain. Chain length now - {self.return_blockchain_object().return_chain_length()}")
-        # TODO delete has_added_block
-        # self.has_added_block = True
-        self.the_added_block = block_to_add
-        return True      
+    # def add_block(self, block_to_add):
+    #     self.return_blockchain_object().append_block(block_to_add)
+    #     print(f"d_{self.idx.split('_')[-1]} - {self.role[0]} has appened a block to its chain. Chain length now - {self.return_blockchain_object().return_chain_length()}")
+    #     # TODO delete has_added_block
+    #     # self.has_added_block = True
+    #     self.the_added_block = block_to_add
+    #     return True      
 
     def set_block_download_time(self, block_download_time):
         self.block_download_time = block_download_time
@@ -1388,7 +1393,7 @@ class Device:
                     # verified_block, verification_time = device.verify_block(block_to_download, block_to_download.return_mined_by())
                     # if verified_block:
                     #     # forgot to check for maliciousness of the block miner
-                    device.append_block(block_to_download)
+                    device.add_block(block_to_download)
                     device.add_to_round_end_time(requesting_time_point + transmission_delay)
                 else:
                     print(f"miner {self.idx} has already added a block this round. Skipping the request to download.")
