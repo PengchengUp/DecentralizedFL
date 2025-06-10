@@ -5,7 +5,13 @@
 
 ## Run Simulation
 ```python
-$python main.py -nd 50 -max_ncomm 100 -ha 40,10 -nm 12,3 -vh 0.08 -B 16 -mn cifar10_cnn -data cifar10 -iid 0 -lr 0.01   
+$python main.py -nd 30 -max_ncomm 100 -le 5 -ha 24,6 -nm 6,1 -vh 0.08 -B 16 -mn fedavgcnn -data mnist -alpha 1 -lr 0.01   
+```
+```python
+$python main.py -nd 30 -max_ncomm 100 -le 5 -ha 24,6 -nm 6,1 -vh 0.08 -B 16 -mn fedavgcnn -data cifar10 -alpha 1 -lr 0.01   
+```
+```python
+$python main.py -nd 30 -max_ncomm 100 -le 5 -ha 24,6 -nm 6,1 -vh 0.08 -B 16 -mn resnet10 -data cifar100 -alpha 1 -lr 0.01   
 ```
 
 （1）-nd: number of devices.

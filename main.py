@@ -24,6 +24,8 @@ import os
 import sys
 import argparse
 import numpy as np
+from scipy.stats import entropy
+from math import sqrt
 import random
 import time
 from datetime import datetime
@@ -35,7 +37,7 @@ from pathlib import Path
 import shutil
 import torch
 import torch.nn.functional as F
-from Models import Mnist_2NN, Mnist_CNN, Mnist_CNN_Simplified, Cifar10_CNN, Cifar10_CNN_Simplified, Cifar100_CNN, Cifar100_ResNet
+from Models import Mnist_2NN, Mnist_CNN, Mnist_CNN_Simplified, Cifar10_CNN, Cifar10_CNN_Simplified, Cifar100_CNN, Cifar100_ResNet, FedAvgCNN, CifarNet, resnet8, resnet10
 from Device import Device, DevicesInNetwork
 from Block import Block
 from Blockchain import Blockchain
@@ -66,7 +68,7 @@ parser.add_argument('-B', '--batchsize', type=int, default=16, help='local train
 parser.add_argument('-mn', '--model_name', type=str, default='mnist_cnn', help='the model to train')
 parser.add_argument('-lr', "--learning_rate", type=float, default=0.01, help="learning rate, use value from origin paper as default")
 parser.add_argument('-op', '--optimizer', type=str, default="SGD", help='optimizer to be used, by default implementing stochastic gradient descent')
-parser.add_argument('-iid', '--IID', type=int, default=0, help='the way to allocate data to devices')
+parser.add_argument('-alpha', '--alpha', type=float, default=100, help='alpha value for the Dirichlet distribution, used to generate non-iid data distribution. 100 means iid data distribution')
 parser.add_argument('-max_ncomm', '--max_num_comm', type=int, default=100, help='maximum number of communication rounds, may terminate early if converges')
 parser.add_argument('-nd', '--num_devices', type=int, default=20, help='numer of the devices in the simulation network')
 parser.add_argument('-st', '--shard_test_data', type=int, default=0, help='it is easy to see the global models are consistent across devices when the test dataset is NOT sharded')
@@ -167,6 +169,7 @@ if __name__=="__main__":
 		
 		# 0. create log_files_folder_path if not resume
 		os.mkdir(log_files_folder_path)
+		random.seed(42) # set random seed for reproducibility
 
 		# 1. save arguments used
 		with open(f'{log_files_folder_path}/args_used.txt', 'w') as f:
@@ -217,18 +220,24 @@ if __name__=="__main__":
 
 		# 6. create neural net based on the input model name
 		net = None
-		if args['model_name'] == 'mnist_2nn':
-			net = Mnist_2NN()
-		elif args['model_name'] == 'mnist_cnn':
-			net = Mnist_CNN_Simplified()#Mnist_CNN()
-		elif args['model_name'] == 'cifar10_cnn':
-			net = Cifar10_CNN()#Cifar10_CNN_Simplified()
-		elif args['model_name'] == 'cifar100_cnn':
-			net = Cifar100_CNN()#Cifar100_CNN_Simplified()
-		elif args['model_name'] == 'cifar100_resnet':
-			net = Cifar100_ResNet()
+		if args['model_name'] == 'fedavgcnn':
+			if args['dataset'] in ['cifar10', 'cifar100']:
+				in_channels = 3
+				input_size = 32
+				num_classes = 10 if args['dataset'] == 'cifar10' else 100
+			elif args['dataset'] in ['mnist', 'femnist']:
+				in_channels = 1
+				input_size = 28
+				num_classes = 10  # or appropriate for femnist
+			else:
+				raise ValueError("Unsupported dataset")
+			net = FedAvgCNN(in_features=in_channels, num_classes=num_classes, input_size=input_size)
+		elif args['model_name'] == 'resnet8':
+			net = resnet8()
+		elif args['model_name'] == 'resnet10':
+			net = resnet8()
 		else:
-			sys.exit("ERROR: Invalid model name. Please choose from mnist_2nn, mnist_cnn, cifar10_cnn, cifar100_resnet.")
+			sys.exit("ERROR: Invalid model name. Please choose from FedAvgCNN, resnet8, resnet10.")
 
 		# 7. assign GPU(s) if available to the net, otherwise CPU
 		# os.environ['CUDA_VISIBLE_DEVICES'] = args['gpu']
@@ -241,11 +250,10 @@ if __name__=="__main__":
 		loss_func = F.cross_entropy
 
 		# 9. create devices in the network
-		devices_in_network = DevicesInNetwork(data_set_name=args['dataset'], is_iid=args['IID'], batch_size = args['batchsize'], 
+		devices_in_network = DevicesInNetwork(data_set_name=args['dataset'], alpha=args['alpha'], batch_size = args['batchsize'], 
 										learning_rate =  args['learning_rate'], loss_func = loss_func, opti = args['optimizer'], 
 										num_devices=num_devices, roles_requirement=roles_requirement, network_stability=args['network_stability'], 
-										net=net, dev=dev, knock_out_rounds=args['knock_out_rounds'], lazy_worker_knock_out_rounds=args['lazy_worker_knock_out_rounds'], 
-										shard_test_data=args['shard_test_data'], miner_acception_wait_time=args['miner_acception_wait_time'], 
+										net=net, dev=dev, knock_out_rounds=args['knock_out_rounds'], lazy_worker_knock_out_rounds=args['lazy_worker_knock_out_rounds'], miner_acception_wait_time=args['miner_acception_wait_time'], 
 										worker_acception_wait_time=args['worker_acception_wait_time'], miner_accepted_transactions_size_limit=args['miner_accepted_transactions_size_limit'], 
 										validate_threshold=args['validate_threshold'], pow_difficulty=args['pow_difficulty'], even_link_speed_strength=args['even_link_speed_strength'], 
 										base_data_transmission_speed=args['base_data_transmission_speed'], even_computation_power=args['even_computation_power'], 
@@ -303,26 +311,54 @@ if __name__=="__main__":
 				torch.cuda.empty_cache()
 		print(f"\nCommunication round {comm_round}")
 		comm_round_start_time = time.time()
+		
+		
 		# (RE)ASSIGN ROLES 分配角色
 		workers_to_assign = workers_needed
-		miners_to_assign = miners_needed #TODO 优化目标：worker和miner的比例
+		miners_to_assign = miners_needed
+		malicious_workers_needed, malicious_miners_needed = num_malicious
+
 		workers_this_round = []
 		miners_this_round = []
-		random.shuffle(devices_list)
-		for device in devices_list:
-			if workers_to_assign:
+
+		# 恶意设备分配角色
+		malicious_devices = [d for d in devices_list if d.is_malicious]
+		random.shuffle(malicious_devices)
+		if malicious_devices:
+			for device in malicious_devices:
+				if malicious_workers_needed > 0:
+					device.assign_worker_role()
+					workers_this_round.append(device)
+					malicious_workers_needed -= 1
+					workers_to_assign -= 1
+				elif malicious_miners_needed > 0:
+					device.assign_miner_role()
+					miners_this_round.append(device)
+					malicious_miners_needed -= 1
+					miners_to_assign -= 1
+				else:
+					break  # 没有更多恶意角色需要分配
+				device.online_switcher()
+
+		# 从良性设备中继续分配角色
+		benign_devices = [d for d in devices_list if not d.is_malicious]
+		random.shuffle(benign_devices)
+		for device in benign_devices:
+			if workers_to_assign > 0:
 				device.assign_worker_role()
+				workers_this_round.append(device)
 				workers_to_assign -= 1
-			elif miners_to_assign:
+			elif miners_to_assign > 0:
 				device.assign_miner_role()
+				miners_this_round.append(device)
 				miners_to_assign -= 1
 			else:
-				device.assign_role()
-			if device.return_role() == 'worker':
+				device.assign_role()  # 默认自动分配
+			# 记录角色
+			if device.return_role() == 'worker' and device not in workers_this_round:
 				workers_this_round.append(device)
-			else:
+			elif device.return_role() == 'miner' and device not in miners_this_round:
 				miners_this_round.append(device)
-			# determine if online at the beginning (essential for step 1 when worker needs to associate with an online device)
 			device.online_switcher()
 
 		''' DEBUGGING CODE '''
@@ -866,11 +902,40 @@ if __name__=="__main__":
 				all_devices_round_ends_time.append(device.return_round_end_time())
 
 		print(''' Logging Accuracies by Devices ''')
+		global_accuracy = []
 		for device in devices_list:
 			device.accuracy_this_round = device.validate_model_weights()
 			with open(f"{log_files_folder_path_comm_round}/accuracy_comm_{comm_round}.txt", "a") as file:
 				is_malicious_node = "M" if device.return_is_malicious() else "B"
 				file.write(f"{device.return_idx()} {device.return_role()} {is_malicious_node}: {device.accuracy_this_round}\n")
+				global_accuracy.append(device.accuracy_this_round)
+		if isinstance(global_accuracy, torch.Tensor):
+			global_accuracy = global_accuracy.detach().cpu().numpy()
+		elif isinstance(global_accuracy, list):
+			global_accuracy = [acc.detach().cpu().item() if isinstance(acc, torch.Tensor) else acc for acc in global_accuracy]
+			global_accuracy = np.array(global_accuracy)
+		# 1. 计算标准差
+		std = np.std(global_accuracy)
+		# 2. 计算熵（将准确率归一化为概率分布）
+		acc_array = np.array(global_accuracy)
+		acc_prob_dist = acc_array / acc_array.sum()
+		acc_entropy = entropy(acc_prob_dist, base=2)
+		# 3. 计算基尼系数
+		def gini_coefficient(x):
+			x = np.sort(np.array(x))  # 排序
+			n = len(x)
+			index = np.arange(1, n + 1)
+			return (2 * np.sum(index * x) / np.sum(x) / n) - (n + 1) / n
+		gini = gini_coefficient(global_accuracy)
+		# 4. 与全1向量的欧氏距离
+		distance = np.linalg.norm(np.array(global_accuracy) - np.ones(len(global_accuracy)))
+		with open(f"{log_files_folder_path_comm_round}/accuracy_comm_{comm_round}.txt", "a") as file:
+			file.write(f"Fairness: Std:{std}, Entropy:{acc_entropy}, Gini:{gini}, Distance to 1:{distance}\n")
+		# 5. 计算全局准确率
+		global_accuracy = np.mean(global_accuracy) if global_accuracy.size > 0 else 0
+		with open(f"{log_files_folder_path_comm_round}/accuracy_comm_{comm_round}.txt", "a") as file:
+			file.write(f"Global_Accuracy: {global_accuracy}\n")
+		# end of the comm round, log the time spent on this round
 
 		# logging time, mining_consensus and forking
 		# get the slowest device end time

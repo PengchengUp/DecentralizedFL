@@ -11,7 +11,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 class DatasetLoad(object):
-	def __init__(self, dataSetName, isIID):
+	def __init__(self, dataSetName):
 		self.name = dataSetName
 		self.train_data = None
 		self.train_label = None
@@ -23,16 +23,18 @@ class DatasetLoad(object):
 		self._index_in_train_epoch = 0
 
 		if self.name == 'mnist':
-			self.mnistDataSetConstruct(isIID)
+			self.mnistDataSetConstruct()
 		elif self.name == 'cifar10':
-			self.cifar10DataSetConstruct(isIID)
+			self.cifar10DataSetConstruct()
 		elif self.name == 'cifar100':
-			self.cifar100DataSetConstruct(isIID)
+			self.cifar100DataSetConstruct()
+		# elif self.name == 'femnist':
+		# 	self.femnistDataSetConstruct()
 		else:
 			pass
 
 
-	def mnistDataSetConstruct(self, isIID):
+	def mnistDataSetConstruct(self):
 		data_dir = 'data/MNIST'
 		train_images_path = os.path.join(data_dir, 'train-images-idx3-ubyte.gz')
 		train_labels_path = os.path.join(data_dir, 'train-labels-idx1-ubyte.gz')
@@ -57,30 +59,26 @@ class DatasetLoad(object):
 
 		assert train_images.shape[3] == 1
 		assert test_images.shape[3] == 1
-		train_images = train_images.reshape(train_images.shape[0], train_images.shape[1] * train_images.shape[2])
-		test_images = test_images.reshape(test_images.shape[0], test_images.shape[1] * test_images.shape[2])
+		# train_images = train_images.reshape(train_images.shape[0], train_images.shape[1] * train_images.shape[2])
+		# test_images = test_images.reshape(test_images.shape[0], test_images.shape[1] * test_images.shape[2])
+		train_images = train_images.reshape(-1, 1, 28, 28)
+		test_images = test_images.reshape(-1, 1, 28, 28)
+
 
 		train_images = train_images.astype(np.float32)
 		train_images = np.multiply(train_images, 1.0 / 255.0)
 		test_images = test_images.astype(np.float32)
 		test_images = np.multiply(test_images, 1.0 / 255.0)
 
-		if isIID:
-			order = np.arange(self.train_data_size)
-			random.seed(7)
-			np.random.shuffle(order)
-			self.train_data = train_images[order]
-			self.train_label = train_labels[order]
-		else:
-			labels = np.array(train_labels)
-			order = np.argsort(labels)
-			self.train_data = train_images[order]
-			self.train_label = np.array(train_labels)[order]
+		order = np.arange(self.train_data_size)
+		np.random.shuffle(order)
+		self.train_data = train_images[order]
+		self.train_label = train_labels[order]
 
 		self.test_data = test_images
 		self.test_label = test_labels
 
-	def cifar10DataSetConstruct(self, isIID):
+	def cifar10DataSetConstruct(self):
 		data_dir = 'data/CIFAR-10'
 
 		if not os.path.exists(data_dir):
@@ -124,32 +122,25 @@ class DatasetLoad(object):
 		test_labels = np.array(test_batch[b'labels'])
 
 		# Reshape and normalize training images
-		train_images = train_images.reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
+		train_images = train_images.reshape(-1, 3, 32, 32)#.transpose(0, 2, 3, 1)
 		train_images = train_images.astype(np.float32) / 255.0
 
 		# Reshape and normalize test images
-		test_images = test_images.reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
+		test_images = test_images.reshape(-1, 3, 32, 32)#.transpose(0, 2, 3, 1)
 		test_images = test_images.astype(np.float32) / 255.0
 
 		self.train_data_size = train_images.shape[0]
 		self.test_data_size = test_images.shape[0]
 
-		if isIID:
-			order = np.arange(self.train_data_size)
-			random.seed(7)
-			np.random.shuffle(order)
-			self.train_data = train_images[order]
-			self.train_label = train_labels[order]
-		else:
-			labels = np.array(train_labels)
-			order = np.argsort(labels)
-			self.train_data = train_images[order]
-			self.train_label = np.array(train_labels)[order]
+		order = np.arange(self.train_data_size)
+		np.random.shuffle(order)
+		self.train_data = train_images[order]
+		self.train_label = train_labels[order]
 
 		self.test_data = test_images
 		self.test_label = test_labels
 
-	def cifar100DataSetConstruct(self, isIID):
+	def cifar100DataSetConstruct(self):
 		data_dir = 'data/CIFAR-100'
 
 		if not os.path.exists(data_dir):
@@ -186,15 +177,6 @@ class DatasetLoad(object):
 		test_images = test_batch[b'data']
 		test_labels = np.array(test_batch[b'fine_labels'])  # Using fine labels
 
-		# # Reshape and normalize training images
-		# train_images = train_images.reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
-		# train_images = train_images.astype(np.float32) / 255.0
-
-		# # Reshape and normalize test images
-		# test_images = test_images.reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
-		# test_images = test_images.astype(np.float32) / 255.0
-		
-				# 修改后的正确代码（删除transpose操作）
 		train_images = train_images.reshape(-1, 3, 32, 32)  # 保持 [N, C, H, W]
 		train_images = train_images.astype(np.float32) / 255.0
 
@@ -204,65 +186,13 @@ class DatasetLoad(object):
 		self.train_data_size = train_images.shape[0]
 		self.test_data_size = test_images.shape[0]
 
-		if isIID:
-			order = np.arange(self.train_data_size)
-			random.seed(7)
-			np.random.shuffle(order)
-			self.train_data = train_images[order]
-			self.train_label = train_labels[order]
-		else:
-			labels = np.array(train_labels)
-			order = np.argsort(labels)
-			self.train_data = train_images[order]
-			self.train_label = np.array(train_labels)[order]
+		order = np.arange(self.train_data_size)
+		np.random.shuffle(order)
+		self.train_data = train_images[order]
+		self.train_label = train_labels[order]
 
 		self.test_data = test_images
 		self.test_label = test_labels
-
-	# def cifar10DataSetConstruct(self, isIID):
-	# 	# Define the transform to normalize the data
-	# 	transform = transforms.Compose([
-	# 		transforms.ToTensor(),
-	# 		transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-	# 	])
-
-	# 	# Load CIFAR-10 dataset
-	# 	data_dir = 'data/CIFAR10'
-	# 	train_dataset = datasets.CIFAR10(root=data_dir, train=True, download=True, transform=transform)
-	# 	test_dataset = datasets.CIFAR10(root=data_dir, train=False, download=True, transform=transform)
-
-	# 	# Extract images and labels
-	# 	train_images = train_dataset.data
-	# 	train_labels = np.array(train_dataset.targets)
-	# 	test_images = test_dataset.data
-	# 	test_labels = np.array(test_dataset.targets)
-
-	# 	# 50000 training data points, 10000 test data points
-	# 	assert train_images.shape[0] == train_labels.shape[0]
-	# 	assert test_images.shape[0] == test_labels.shape[0]
-
-	# 	self.train_data_size = train_images.shape[0]
-	# 	self.test_data_size = test_images.shape[0]
-
-	# 	# Reshape images to (N, D) where D = 32*32*3
-	# 	train_images = train_images.reshape(train_images.shape[0], -1)
-	# 	test_images = test_images.reshape(test_images.shape[0], -1)
-
-	# 	train_images = train_images.astype(np.float32) / 255.0
-	# 	test_images = test_images.astype(np.float32) / 255.0
-
-	# 	if isIID:
-	# 		order = np.arange(self.train_data_size)
-	# 		np.random.shuffle(order)
-	# 		self.train_data = train_images[order]
-	# 		self.train_label = train_labels[order]
-	# 	else:
-	# 		order = np.argsort(train_labels)
-	# 		self.train_data = train_images[order]
-	# 		self.train_label = train_labels[order]
-
-	# 	self.test_data = test_images
-	# 	self.test_label = test_labels
 
 def _read32(bytestream):
 	dt = np.dtype(np.uint32).newbyteorder('>')
