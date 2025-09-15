@@ -1,10 +1,12 @@
 # reference - https://developer.ibm.com/technologies/blockchain/tutorials/develop-a-blockchain-application-from-scratch-in-python/
 import copy
 import json
+import hashlib
 from hashlib import sha256
+from collections import OrderedDict
 
 class Block:
-	def __init__(self, idx, previous_block_hash=None, transactions=None, nonce=0, miner_rsa_pub_key=None, mined_by=None, mining_rewards=None, hash=None, signature=None):
+	def __init__(self, idx, previous_block_hash=None, transactions=None, global_model = None, rewards_allocation = dict(), nonce=0, miner_rsa_pub_key=None, mined_by=None, mining_rewards=None, hash=None, signature=None):
 		self._idx = idx
 		self._previous_block_hash = previous_block_hash
 		self._transactions = transactions
@@ -18,6 +20,8 @@ class Block:
 		# the hash of the current block, calculated by compute_hash
 		self._hash = hash
 		self._signature = signature
+		self._global_model = global_model
+		self._rewards_allocation = rewards_allocation
 
 		#for proof_of_endorsement
 		self.leader_id = None
@@ -28,21 +32,34 @@ class Block:
 	# pow - block hash is None, so does not affect much
 	# verification - the block already has its hash
 	# if hash_entire_block == True -> used in set_previous_block_hash, where we need to hash the whole previous block
-	def compute_hash(self, hash_entire_block=False):
-		block_content = copy.deepcopy(self.__dict__)
-		if not hash_entire_block:
-			block_content['_hash'] = None
-			block_content['_signature'] = None
-			block_content['_mining_rewards'] = None
-		# need sort keys to preserve order of key value pairs
-		return sha256(str(sorted(block_content.items())).encode('utf-8')).hexdigest() #十六进制字符串
+	# def compute_hash(self, hash_entire_block=False):
+	# 	block_content = copy.deepcopy(self.__dict__)
+	# 	if not hash_entire_block:
+	# 		block_content['_hash'] = None
+	# 		block_content['_signature'] = None
+	# 		block_content['_mining_rewards'] = None
+	# 	# need sort keys to preserve order of key value pairs
+	# 	return sha256(str(sorted(block_content.items())).encode('utf-8')).hexdigest() #十六进制字符串
+	def compute_hash(self):
+		"""计算区块的哈希值，排除签名和哈希字段"""
+		# 使用有序字典确保字段顺序一致
+		hash_data = OrderedDict([
+			("index", self._idx),
+			("transactions", self._transactions),
+			("global_model", self._global_model),
+			("miner_rsa_pub_key", self._miner_rsa_pub_key),
+			("previous_hash", self._previous_block_hash ),
+			("mined_by", self._mined_by)
+		])
+		# block_string = json.dumps(hash_data, sort_keys=True).encode()
+		return sha256(str(sorted(hash_data.items())).encode('utf-8')).hexdigest()#hashlib.sha256(block_string).hexdigest()
 
 	def remove_signature_for_verification(self):
 		self._signature = None
 
 	def set_hash(self, the_hash):
 		self._hash = the_hash
-
+ 
 	def nonce_increment(self):
 		self._nonce += 1
 
@@ -105,6 +122,12 @@ class Block:
 	
 	def return_transactions(self):
 		return self._transactions
+	
+	def return_global_model(self):
+		return self._global_model
+	
+	def return_rewards(self):
+		return self._rewards_allocation
 
 	# a temporary workaround to free GPU mem by delete txs stored in the blocks. Not good when need to resync chain
 	def free_tx(self):
